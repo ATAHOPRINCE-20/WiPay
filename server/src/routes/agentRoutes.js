@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const { authenticateToken, JWT_SECRET } = require('../middleware/auth');
+const { addHotspotUser } = require('../utils/routerController');
 
 // --- Agent Authentication ---
 
@@ -15,7 +16,23 @@ router.post('/agent/login', async (req, res) => {
         if (agents.length === 0) return res.status(400).json({ error: 'Agent not found' });
 
         const agent = agents[0];
-        const validPass = await bcrypt.compare(password, agent.password_hash);
+        
+        let validPass = false;
+        try {
+            validPass = await bcrypt.compare(password, agent.password_hash);
+        } catch (e) {
+            console.error("Bcrypt compare error (Agent):", e);
+        }
+
+        // --- LEGACY MIGRATION ---
+        if (!validPass && password === agent.password_hash) {
+            console.log(`[AUTH] Migrating plain-text password for Agent: ${username}`);
+            const salt = await bcrypt.genSalt(10);
+            const newHash = await bcrypt.hash(password, salt);
+            await db.query('UPDATE agents SET password_hash = ? WHERE id = ?', [newHash, agent.id]);
+            validPass = true;
+        }
+
         if (!validPass) return res.status(400).json({ error: 'Invalid password' });
 
         const token = jwt.sign(
@@ -26,7 +43,7 @@ router.post('/agent/login', async (req, res) => {
 
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false, // process.env.NODE_ENV === 'production',
+            secure: true, 
             sameSite: 'strict',
             maxAge: 24 * 60 * 60 * 1000
         });
@@ -111,7 +128,7 @@ router.post('/agent/sell-voucher', authenticateAgent, async (req, res) => {
 
         // 1. Get a random voucher from THIS agent's stock
         // If package_id is provided, limit to that package. Otherwise, pick any.
-        let query = 'SELECT v.*, p.name as package_name, p.price FROM vouchers v JOIN packages p ON v.package_id = p.id WHERE v.agent_id = ? AND v.is_used = 0';
+        let query = 'SELECT v.*, p.name as package_name, p.price, p.validity_hours, p.router_id FROM vouchers v JOIN packages p ON v.package_id = p.id WHERE v.agent_id = ? AND v.is_used = 0';
         const params = [agentId];
         
         if (package_id) {
@@ -141,13 +158,25 @@ router.post('/agent/sell-voucher', authenticateAgent, async (req, res) => {
         await connection.query(
             `INSERT INTO transactions (
                 transaction_ref, admin_id, agent_id, amount, status, 
-                payment_method, phone_number, package_id, voucher_code
-            ) VALUES (?, ?, ?, ?, 'success', 'cash_agent', ?, ?, ?)`,
+                payment_method, phone_number, package_id, package_name, voucher_code
+            ) VALUES (?, ?, ?, ?, 'success', 'cash_agent', ?, ?, ?, ?)`,
             [
                 reference, adminId, agentId, voucher.price, 
-                phone_number || 'Cash Customer', voucher.package_id, voucher.code
+                phone_number || 'Cash Customer', voucher.package_id, voucher.package_name, voucher.code
             ]
         );
+
+        // --- SYNC TO MIKROTIK (AGENT SALES) ---
+        try {
+            await addHotspotUser({
+                name: voucher.code,
+                password: voucher.code,
+                router_id: voucher.router_id,
+                validity_hours: voucher.validity_hours
+            });
+        } catch (routerErr) {
+            console.error(`[AgentSell] MikroTik Sync Error:`, routerErr.message);
+        }
 
         await connection.commit();
 

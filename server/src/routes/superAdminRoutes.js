@@ -44,7 +44,10 @@ router.get("/tenants", async (req, res) => {
                     JSON_OBJECT(
                         'id', r.id,
                         'name', r.name,
-                        'mikhmon_url', r.mikhmon_url
+                        'mikhmon_url', r.mikhmon_url,
+                        'api_user', r.api_user,
+                        'api_pass', r.api_pass,
+                        'api_port', r.api_port
                     )
                 ) as routers
             FROM admins a
@@ -456,6 +459,73 @@ router.post("/registration-requests/:id/approve", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to approve request" });
+  }
+});
+
+// --- Ad Approvals ---
+
+// List all pending ads
+router.get("/ads/pending", async (req, res) => {
+  try {
+    const query = `
+      SELECT ads.*, admins.username as admin_username
+      FROM ads
+      JOIN admins ON ads.admin_id = admins.id
+      WHERE ads.status = 'pending'
+      ORDER BY ads.created_at DESC
+    `;
+    const [rows] = await db.query(query);
+    res.json(rows);
+  } catch (err) {
+    console.error('Fetch Pending Ads Error:', err);
+    res.status(500).json({ error: "Failed to fetch pending ads" });
+  }
+});
+
+// Approve an ad
+router.post("/ads/:id/approve", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("UPDATE ads SET status = 'approved' WHERE id = ?", [id]);
+    res.json({ message: "Ad approved successfully" });
+  } catch (err) {
+    console.error('Approve Ad Error:', err);
+    res.status(500).json({ error: "Failed to approve ad" });
+  }
+});
+
+// Reject an ad
+router.post("/ads/:id/reject", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("UPDATE ads SET status = 'rejected' WHERE id = ?", [id]);
+    res.json({ message: "Ad rejected successfully" });
+  } catch (err) {
+    console.error('Reject Ad Error:', err);
+    res.status(500).json({ error: "Failed to reject ad" });
+  }
+});
+
+// Super Admin: Update Any Router
+router.put("/routers/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, mikhmon_url, api_user, api_pass, api_port } = req.body;
+  if (!name || !mikhmon_url) return res.status(400).json({ error: "Name and URL are required" });
+
+  try {
+    const [result] = await db.query(
+      "UPDATE routers SET name = ?, mikhmon_url = ?, api_user = ?, api_pass = ?, api_port = ? WHERE id = ?",
+      [name, mikhmon_url, api_user || null, api_pass || null, api_port || 8728, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Router not found" });
+    }
+
+    res.json({ message: "Router updated successfully" });
+  } catch (err) {
+    console.error("Super Admin Update Router Error:", err);
+    res.status(500).json({ error: "Failed to update router" });
   }
 });
 

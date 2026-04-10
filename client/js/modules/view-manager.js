@@ -11,7 +11,6 @@ export function setCurrentRouterFilter(val) {
 }
 
 export function switchView(viewName) {
-    console.log('Switching to:', viewName);
     localStorage.setItem('currentView', viewName);
 
     // 1. Hide all views

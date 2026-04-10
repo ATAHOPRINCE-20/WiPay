@@ -59,29 +59,26 @@
       };
     </script>
     <script src="/socket.io/socket.io.js"></script>
-    <script
-      src="https://cdn.socket.io/4.7.2/socket.io.min.js"
-      integrity="sha384-mZLF4UVrpi/QTWPA7BjNPEnkIfRFn4ZEO3Qt/HFklTJBj/gBOV8G3HcKn4NfQblz"
-      crossorigin="anonymous"
-    ></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <script>
-      (function() {
-          const userStr = localStorage.getItem('wipay_user');
-          try {
-              if (userStr) {
-                  const user = userStr.startsWith('{') ? JSON.parse(userStr) : { username: userStr, role: 'admin' };
-                  if (user.role === 'super_admin') {
-                      window.location.href = 'super_dashboard.html';
-                  } else if (user.role === 'agent') {
-                      window.location.href = 'agent.html';
-                  }
-              } else {
-                  window.location.href = 'login_dashboard.html';
-              }
-          } catch (e) {
-              window.location.href = 'login_dashboard.html';
+      (function () {
+        const userStr = localStorage.getItem("wipay_user");
+        try {
+          if (userStr) {
+            const user = userStr.startsWith("{")
+              ? JSON.parse(userStr)
+              : { username: userStr, role: "admin" };
+            if (user.role === "super_admin") {
+              window.location.href = "super_dashboard.html";
+            } else if (user.role === "agent") {
+              window.location.href = "agent.html";
+            }
+          } else {
+            window.location.href = "login_dashboard.html";
           }
+        } catch (e) {
+          window.location.href = "login_dashboard.html";
+        }
       })();
     </script>
   </head>
@@ -161,14 +158,14 @@
 
           <div class="nav-section">COMMS</div>
           <ul>
-            <li>
+            <li data-view="ads">
               <a
                 href="#"
                 onclick="
-                  showAlert('Ads feature coming soon', 'info');
+                  switchView('ads');
                   return false;
                 "
-                >Ads <span class="add-btn">+ Add</span></a
+                >Portal Ads <span class="add-btn">+ Upload</span></a
               >
             </li>
             <li data-view="sms">
@@ -202,7 +199,15 @@
                   switchView('agents');
                   return false;
                 "
-                >Agents <span class="add-btn" onclick="openDashModal('addAgentModal'); event.stopPropagation();">+ Add</span></a
+                >Agents
+                <span
+                  class="add-btn"
+                  onclick="
+                    openDashModal('addAgentModal');
+                    event.stopPropagation();
+                  "
+                  >+ Add</span
+                ></a
               >
             </li>
             <li data-view="checkSite">
@@ -259,7 +264,8 @@
           style="display: none"
           onclick="openDashModal('subscriptionModal')"
         >
-          <span class="banner-icon">⚠️</span> <strong>ALERT:</strong> Your Subscription to UGPAY has expired.
+          <span class="banner-icon">⚠️</span> <strong>ALERT:</strong> Your
+          Subscription to UGPAY has expired.
           <span class="renew-link">Click here to Renew</span>
         </div>
 
@@ -304,10 +310,7 @@
 
           <!-- 3. Right: Button + Avatar -->
           <div class="header-right-container">
-            <button
-              id="btnSellVoucher"
-              class="btn-sell-voucher"
-            >
+            <button id="btnSellVoucher" class="btn-sell-voucher">
               Sell Voucher
             </button>
             <!-- Avatar Dropdown -->
@@ -344,13 +347,30 @@
         </header>
 
         <!-- Generic Confirmation Modal -->
-        <div id="confirmGlobalModal" class="dashboard-modal hidden" style="z-index: 10000">
-          <div class="dashboard-modal-content" style="text-align: center; max-width: 400px">
-            <div id="confirmIcon" style="margin-bottom: 16px; font-size: 3rem; color: var(--primary-color)">
+        <div
+          id="confirmGlobalModal"
+          class="dashboard-modal hidden"
+          style="z-index: 10000"
+        >
+          <div
+            class="dashboard-modal-content"
+            style="text-align: center; max-width: 400px"
+          >
+            <div
+              id="confirmIcon"
+              style="
+                margin-bottom: 16px;
+                font-size: 3rem;
+                color: var(--primary-color);
+              "
+            >
               <i class="fas fa-question-circle"></i>
             </div>
             <h3 id="confirmTitle">Are you sure?</h3>
-            <p id="confirmMessage" style="color: var(--text-muted); margin-bottom: 24px">
+            <p
+              id="confirmMessage"
+              style="color: var(--text-muted); margin-bottom: 24px"
+            >
               Please confirm this action.
             </p>
             <div class="modal-actions">
@@ -490,7 +510,11 @@
             <div class="stat-card blue">
               <div class="stat-value" id="total-wallet-balance">Loading...</div>
               <div class="stat-label">Total Wallet Balance</div>
-              <div class="card-footer" onclick="openDashModal('balanceInfoModal')" style="cursor: pointer;">
+              <div
+                class="card-footer"
+                onclick="openDashModal('balanceInfoModal')"
+                style="cursor: pointer"
+              >
                 Wallet Total <span class="arrow">→</span>
               </div>
             </div>
@@ -500,7 +524,10 @@
               <div class="stat-label">Withdrawable Balance</div>
               <div
                 class="card-footer"
-                onclick="resetWithdrawalModal(); openDashModal('withdrawModal');"
+                onclick="
+                  resetWithdrawalModal();
+                  openDashModal('withdrawModal');
+                "
                 style="cursor: pointer"
               >
                 Withdraw UGX <span class="arrow">→</span>
@@ -524,11 +551,15 @@
             </div>
 
             <div class="stat-card cyan">
-               <div class="stat-value" id="agent-sales">0</div>
-               <div class="stat-label">Agent Sales (Settled)</div>
-               <div class="card-footer" onclick="switchView('agents')" style="cursor: pointer;">
-                 Manage Agents <span class="arrow">→</span>
-               </div>
+              <div class="stat-value" id="agent-sales">0</div>
+              <div class="stat-label">Agent Sales (Settled)</div>
+              <div
+                class="card-footer"
+                onclick="switchView('agents')"
+                style="cursor: pointer"
+              >
+                Manage Agents <span class="arrow">→</span>
+              </div>
             </div>
 
             <div class="stat-card yellow">
@@ -747,7 +778,7 @@
             <h2>Packages</h2>
             <button
               class="btn-success"
-              onclick="openDashModal('addPackageModal')"
+              onclick="openAddPackageModal()"
             >
               + Add Package
             </button>
@@ -853,6 +884,7 @@
                 <tr>
                   <th>Date</th>
                   <th>Phone</th>
+                  <th>Buyer Name</th>
                   <th class="mobile-hide">Amount</th>
                   <th class="mobile-hide">Package</th>
                   <th class="mobile-hide">Method</th>
@@ -871,9 +903,18 @@
         <div id="boughtVouchersView" class="view-section hidden">
           <div class="content-header">
             <h2>Bought Vouchers</h2>
-            <button class="btn-submit" onclick="fetchBoughtVouchersList()">
-              Refresh
-            </button>
+            <div style="display: flex; gap: 10px; align-items: stretch; height: 42px;">
+              <input 
+                type="text" 
+                id="boughtVoucherSearch" 
+                placeholder="Search phone, name, or code..." 
+                onkeyup="filterBoughtVouchers(this.value)"
+                style="padding: 0 15px; margin: 0; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); width: 250px; height: 100%; box-sizing: border-box;"
+              />
+              <button class="btn-submit" onclick="fetchBoughtVouchersList()" style="margin: 0; padding: 0 20px; height: 100%; display: flex; align-items: center; justify-content: center;">
+                Refresh
+              </button>
+            </div>
           </div>
           <div class="table-responsive table-scroll-view">
             <table class="data-table">
@@ -881,6 +922,7 @@
                 <tr>
                   <th class="mobile-hide">Time Bought</th>
                   <th>Phone Number</th>
+                  <th>Buyer Name</th>
                   <th class="mobile-hide">Package</th>
                   <th class="mobile-hide">Amount</th>
                   <th>Voucher Code</th>
@@ -975,6 +1017,30 @@
                 into the router in Mikhmon.</small
               >
             </div>
+            
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+               <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials (Recommended)</h4>
+               <p style="font-size: 0.75rem; color: #888; margin-bottom: 10px;">Create a dedicated API user on your MikroTik for automatic voucher sync and calendar validity cutoff.</p>
+               <div class="form-group">
+                 <label>Target Router System IP</label>
+                 <input type="text" id="routerApiHost" placeholder="e.g. 192.168.88.1 or public IP" />
+                 <small style="color: #666; font-size: 0.8rem">Required if different from Mikhmon domain.</small>
+               </div>
+               <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <div>
+                    <label>API User</label>
+                    <input type="text" id="routerApiUser" placeholder="e.g. wipay_api" />
+                  </div>
+                  <div>
+                    <label>API Pass</label>
+                    <input type="password" id="routerApiPass" placeholder="••••••••" />
+                  </div>
+               </div>
+               <div class="form-group">
+                  <label>API Port (Default: 8728)</label>
+                  <input type="number" id="routerApiPort" value="8728" />
+               </div>
+            </div>
             <div class="modal-actions">
               <button
                 class="btn-cancel"
@@ -1004,6 +1070,29 @@
               <small style="color: #666; font-size: 0.8rem"
                 >Update the Mikhmon session URL if it has changed.</small
               >
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+               <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials</h4>
+               <div class="form-group">
+                 <label>Target Router System IP</label>
+                 <input type="text" id="editRouterApiHost" placeholder="e.g. 192.168.88.1 or public IP" />
+                 <small style="color: #666; font-size: 0.8rem">Required if different from Mikhmon domain.</small>
+               </div>
+               <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <div>
+                    <label>API User</label>
+                    <input type="text" id="editRouterApiUser" />
+                  </div>
+                  <div>
+                    <label>API Pass</label>
+                    <input type="password" id="editRouterApiPass" placeholder="Leave empty for no change" />
+                  </div>
+               </div>
+               <div class="form-group">
+                  <label>API Port</label>
+                  <input type="number" id="editRouterApiPort" />
+               </div>
             </div>
             <div class="modal-actions">
               <button
@@ -1055,7 +1144,14 @@
 
         <!-- Agents View -->
         <div id="agentsView" class="view-section hidden">
-          <div class="content-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
             <h2>Agents Management</h2>
             <button class="btn-submit" onclick="openDashModal('addAgentModal')">
               + Add Agent
@@ -1108,6 +1204,43 @@
             </table>
           </div>
         </div>
+        <!-- Ads View -->
+        <div id="adsView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Portal Ads</h2>
+            <button class="btn-submit" onclick="openDashModal('uploadAdModal')">
+              + Upload Ad
+            </button>
+          </div>
+          <p style="color: #666; margin-bottom: 20px">
+            Upload a PNG banner (recommended 1200x400) to display on your
+            captive portal. Ads must be approved by the super admin.
+          </p>
+
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Preview</th>
+                  <th class="mobile-hide">Target Link</th>
+                  <th>Status</th>
+                  <th class="mobile-hide">Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
       </main>
     </div>
 
@@ -1120,10 +1253,16 @@
         <h3>Add New Agent</h3>
         <input type="text" id="newAgentUsername" placeholder="Username" />
         <input type="password" id="newAgentPassword" placeholder="Password" />
-        <input type="text" id="newAgentPhone" placeholder="Phone Number (Optional)" />
+        <input
+          type="text"
+          id="newAgentPhone"
+          placeholder="Phone Number (Optional)"
+        />
         <div class="modal-actions">
           <button onclick="createAgent()" class="btn-submit">Save Agent</button>
-          <button onclick="closeDashModal('addAgentModal')" class="btn-cancel">Cancel</button>
+          <button onclick="closeDashModal('addAgentModal')" class="btn-cancel">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -1133,14 +1272,29 @@
       <div class="dashboard-modal-content">
         <h3>Assign Vouchers to Agent</h3>
         <input type="hidden" id="assignAgentId" />
-        <p>Assign vouchers for a specific package to <strong id="assignAgentName"></strong></p>
-        <select id="assignPackageId" style="margin-top: 10px;">
+        <p>
+          Assign vouchers for a specific package to
+          <strong id="assignAgentName"></strong>
+        </p>
+        <select id="assignPackageId" style="margin-top: 10px">
           <option value="">Select Package</option>
         </select>
-        <input type="number" id="assignQuantity" placeholder="Quantity to assign" style="margin-top: 10px;" />
+        <input
+          type="number"
+          id="assignQuantity"
+          placeholder="Quantity to assign"
+          style="margin-top: 10px"
+        />
         <div class="modal-actions">
-          <button onclick="submitAssignVouchers()" class="btn-submit">Assign Stock</button>
-          <button onclick="closeDashModal('assignVouchersModal')" class="btn-cancel">Cancel</button>
+          <button onclick="submitAssignVouchers()" class="btn-submit">
+            Assign Stock
+          </button>
+          <button
+            onclick="closeDashModal('assignVouchersModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -1391,20 +1545,53 @@
 
     <!-- Check Site Modal -->
     <div id="checkSiteModal" class="dashboard-modal hidden">
-        <div class="dashboard-modal-content" style="max-width: 500px">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin: 0">Check Site - Select Router</h3>
-                <button onclick="closeDashModal('checkSiteModal')" style="background: none; border: none; color: #666; font-size: 1.5rem; cursor: pointer;">&times;</button>
-            </div>
-            <p style="color: #888; font-size: 0.9rem; margin-bottom: 20px;">Select a router below to auto-login to its Mikhmon session.</p>
-            <div id="checkSiteRouterList" style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto;">
-                <!-- Populated by JS -->
-                <div style="text-align: center; color: #aaa; padding: 20px;">Fetching routers...</div>
-            </div>
-            <div class="modal-actions" style="margin-top: 20px">
-                <button onclick="closeDashModal('checkSiteModal')" class="btn-cancel">Cancel</button>
-            </div>
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 style="margin: 0">Check Site - Select Router</h3>
+          <button
+            onclick="closeDashModal('checkSiteModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
         </div>
+        <p style="color: #888; font-size: 0.9rem; margin-bottom: 20px">
+          Select a router below to auto-login to its Mikhmon session.
+        </p>
+        <div
+          id="checkSiteRouterList"
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+          "
+        >
+          <!-- Populated by JS -->
+          <div style="text-align: center; color: #aaa; padding: 20px">
+            Fetching routers...
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button onclick="closeDashModal('checkSiteModal')" class="btn-cancel">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Success Modal -->
@@ -1465,6 +1652,30 @@
           <button onclick="startSubscriptionRenewal()" class="btn-submit">
             Renew Now
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Ad Modal -->
+    <div id="uploadAdModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3 class="modal-title">Upload Portal Ad</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px">
+          Select a PNG image (max 2MB). Recommended aspect ratio is 3:1 (e.g. 1200x400).
+        </p>
+        <div class="form-group">
+          <label>Ad Image (PNG only)</label>
+          <input type="file" id="adFile" accept="image/png" />
+        </div>
+        <div class="form-group">
+          <label>Target URL (Optional)</label>
+          <input type="url" id="adTargetUrl" placeholder="https://example.com" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeDashModal('uploadAdModal')">
+            Cancel
+          </button>
+          <button class="btn-submit" onclick="uploadAd()">Upload & Submit</button>
         </div>
       </div>
     </div>
@@ -1616,11 +1827,27 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn-cancel" onclick="resetWithdrawalModal(); closeDashModal('withdrawModal')">
+          <button
+            class="btn-cancel"
+            onclick="
+              resetWithdrawalModal();
+              closeDashModal('withdrawModal');
+            "
+          >
             Cancel
           </button>
-          <button class="btn-submit" id="btnWithdrawNext" onclick="initiateWithdrawal()">Next</button>
-          <button class="btn-submit hidden" id="btnWithdrawConfirm" onclick="submitWithdrawal()">
+          <button
+            class="btn-submit"
+            id="btnWithdrawNext"
+            onclick="initiateWithdrawal()"
+          >
+            Next
+          </button>
+          <button
+            class="btn-submit hidden"
+            id="btnWithdrawConfirm"
+            onclick="submitWithdrawal()"
+          >
             Confirm & Withdraw
           </button>
         </div>
@@ -1652,34 +1879,80 @@
 
     <!-- Generic Detail Modal (Responsive Tables) -->
     <div id="genericDetailModal" class="dashboard-modal hidden">
-        <div class="dashboard-modal-content" style="max-width: 500px">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 id="genericDetailTitle" style="margin: 0">Details</h3>
-                <button onclick="closeDashModal('genericDetailModal')" style="background: none; border: none; color: #666; font-size: 1.5rem; cursor: pointer;">&times;</button>
-            </div>
-            <div id="genericDetailContent">
-                <!-- Populated by JS -->
-            </div>
-            <div class="modal-actions" style="margin-top: 20px">
-                <button onclick="closeDashModal('genericDetailModal')" class="btn-cancel">Close</button>
-            </div>
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 id="genericDetailTitle" style="margin: 0">Details</h3>
+          <button
+            onclick="closeDashModal('genericDetailModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
         </div>
+        <div id="genericDetailContent">
+          <!-- Populated by JS -->
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button
+            onclick="closeDashModal('genericDetailModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Package Detail Modal -->
     <div id="packageDetailModal" class="dashboard-modal hidden">
-        <div class="dashboard-modal-content" style="max-width: 500px">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin: 0">Package Details</h3>
-                <button onclick="closeDashModal('packageDetailModal')" style="background: none; border: none; color: #666; font-size: 1.5rem; cursor: pointer;">&times;</button>
-            </div>
-            <div id="packageDetailContent">
-                <!-- Populated by JS -->
-            </div>
-            <div class="modal-actions" style="margin-top: 20px">
-                <button onclick="closeDashModal('packageDetailModal')" class="btn-cancel">Close</button>
-            </div>
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 style="margin: 0">Package Details</h3>
+          <button
+            onclick="closeDashModal('packageDetailModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
         </div>
+        <div id="packageDetailContent">
+          <!-- Populated by JS -->
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button
+            onclick="closeDashModal('packageDetailModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Transaction Detail Modal -->
@@ -1721,24 +1994,40 @@
       </div>
     </div>
 
-    <script src="js/config.js?v=9999"></script>
-    <script type="module" src="js/dashboard-logic.js?v=9999"></script>
+    <script src="js/config.js?v=10002"></script>
+    <script type="module" src="js/dashboard-logic.js?v=10002"></script>
     <script>
-      console.log("DASHBOARD HTML LOADED");
     </script>
     <!-- Balance Info Modal -->
     <div id="balanceInfoModal" class="dashboard-modal hidden">
-      <div class="dashboard-modal-content" style="max-width: 400px; text-align: center;">
-        <div style="margin-bottom: 16px; font-size: 3rem; color: #3b82f6;">
+      <div
+        class="dashboard-modal-content"
+        style="max-width: 400px; text-align: center"
+      >
+        <div style="margin-bottom: 16px; font-size: 3rem; color: #3b82f6">
           <i class="fas fa-info-circle"></i>
         </div>
         <h3 class="modal-title">Wallet Balance Info</h3>
-        <p style="color: #666; font-size: 0.95rem; line-height: 1.5; margin-bottom: 24px;">
-          This is your <strong>Total Wallet Balance</strong>. <br><br>
-          Please note that a fixed withdrawal fee of <strong>2,000 UGX</strong> will be deducted from this amount whenever you make a withdrawal.
+        <p
+          style="
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 24px;
+          "
+        >
+          This is your <strong>Total Wallet Balance</strong>. <br /><br />
+          Please note that a fixed withdrawal fee of
+          <strong>2,000 UGX</strong> will be deducted from this amount whenever
+          you make a withdrawal.
         </p>
         <div class="modal-actions">
-          <button class="btn-submit" onclick="closeDashModal('balanceInfoModal')">Got it</button>
+          <button
+            class="btn-submit"
+            onclick="closeDashModal('balanceInfoModal')"
+          >
+            Got it
+          </button>
         </div>
       </div>
     </div>

@@ -21,6 +21,13 @@
             <p>Stay online, Stay informed</p>
         </header>
 
+        <!-- Ads Section -->
+        <div id="ad-container" class="hidden" style="margin-bottom: 20px; text-align: center;">
+            <a id="ad-link" href="#" target="_blank">
+                <img id="ad-image" src="" alt="Advertisement" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            </a>
+        </div>
+
         <!-- Top Section: Free Trial & Voucher -->
         <div class="section-card free-trial">
             <span>Free trial available</span>
@@ -131,27 +138,36 @@
             const modalPrice = document.getElementById('modalPrice');
 
             // --- CONFIGURATION FOR ROUTER DEPLOYMENT ---
-            // Change this value to the Admin ID (e.g., 1 or 2) when installing on a specific router.
-            // If null, it will try to read from the URL (?admin=1).
-            // If null, it will try to read from the URL (?admin=1).
-            const ROUTER_ADMIN_ID = 37; // CLIENT_ID: CHANGE THIS PER ROUTER
-            const ROUTER_ID = 2; // ROUTER_ID: CHANGE THIS PER ROUTER
+            // Change these values when installing on a specific router.
+            const ROUTER_ADMIN_ID = 3; 
+            const ROUTER_TENANT_TOKEN = "a1b2c3d4e5f6"; // NEW: Secure identifier
+            const ROUTER_ID = 37;
+
+            // --- URL PARAMETER DETECTION ---
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlAdminId = urlParams.get('admin');
+            const urlTenantToken = urlParams.get('t') || urlParams.get('tenant');
+            
+            const targetAdminId = urlAdminId || ROUTER_ADMIN_ID;
+            const targetTenantToken = urlTenantToken || ROUTER_TENANT_TOKEN;
 
             // --- BRANDING LOGIC ---
             async function fetchBranding() {
-                if (!ROUTER_ADMIN_ID) return;
+                if (!targetTenantToken && !targetAdminId) return;
 
                 try {
-                    // Use protocol-relative URL to avoid mixed content issues
-                    const res = await fetch(`${CONFIG.API_BASE_URL}/branding?admin_id=${ROUTER_ADMIN_ID}`);
+                    let url = `${CONFIG.API_BASE_URL}/branding`;
+                    if (targetTenantToken) url += `?tenant_token=${targetTenantToken}`;
+                    else url += `?admin_id=${targetAdminId}`;
+
+                    const res = await fetch(url);
                     const data = await res.json();
 
                     if (data.name) {
-                        document.title = data.name; // Update Browser Tab
+                        document.title = data.name; 
                         const headerH1 = document.querySelector('header h1');
-                        if (headerH1) headerH1.textContent = data.name; // Update Big Title
+                        if (headerH1) headerH1.textContent = data.name; 
 
-                        // Update Footer
                         const footer = document.querySelector('.info-footer');
                         if (footer) {
                             if (data.phone) {
@@ -167,17 +183,44 @@
             }
             fetchBranding();
 
-            let selectedPackageId = null;
-            let selectedPackagePrice = 0;
+            // --- ADS LOGIC ---
+            async function fetchAd() {
+                if (!targetTenantToken && !targetAdminId) return;
+                try {
+                    let url = `${CONFIG.API_BASE_URL}/ad`;
+                    if (targetTenantToken) url += `?tenant_token=${targetTenantToken}`;
+                    else url += `?admin_id=${targetAdminId}`;
 
-            // Fetch Packages
-            // Priority: 1. URL Param (Shared Link) -> 2. Hardcoded ID (Router)
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlAdminId = urlParams.get('admin');
-            const targetAdminId = urlAdminId || ROUTER_ADMIN_ID;
+                    const res = await fetch(url);
+                    const ad = await res.json();
+                    if (ad && ad.image_url) {
+                        const adContainer = document.getElementById('ad-container');
+                        const adImage = document.getElementById('ad-image');
+                        const adLink = document.getElementById('ad-link');
+                        
+                        const baseUrl = CONFIG.API_BASE_URL.includes('/api') 
+                            ? CONFIG.API_BASE_URL.split('/api')[0] 
+                            : '';
+                        
+                        adImage.src = baseUrl + ad.image_url;
+                        if (ad.target_url) {
+                            adLink.href = ad.target_url;
+                        } else {
+                            adLink.removeAttribute('href');
+                            adLink.style.cursor = 'default';
+                        }
+                        adContainer.classList.remove('hidden');
+                    }
+                } catch (e) {
+                    console.error("Ad Fetch Error:", e);
+                }
+            }
+            fetchAd();
 
+            // --- FETCH PACKAGES ---
             let fetchUrl = `${CONFIG.API_BASE_URL}/packages`;
-            if (targetAdminId) fetchUrl += `?admin_id=${targetAdminId}`;
+            if (targetTenantToken) fetchUrl += `?tenant_token=${targetTenantToken}`;
+            else if (targetAdminId) fetchUrl += `?admin_id=${targetAdminId}`;
 
             console.log('Fetching Packages from:', fetchUrl);
 
@@ -535,7 +578,11 @@
                         const res = await fetch(`${CONFIG.API_BASE_URL}/recover-voucher`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ phone_number: phone, admin_id: ROUTER_ADMIN_ID })
+                            body: JSON.stringify({ 
+                                phone_number: phone, 
+                                admin_id: ROUTER_ADMIN_ID,
+                                tenant_token: targetTenantToken 
+                            })
                         });
                         const vouchers = await res.json();
 

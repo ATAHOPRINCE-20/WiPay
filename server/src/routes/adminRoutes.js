@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const db = require('../config/db');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, verifyAdmin } = require('../middleware/auth');
 const { sendSMS } = require('../utils/sms');
+const { addHotspotUser } = require('../utils/routerController');
 const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
@@ -14,8 +15,7 @@ const upload = multer({ dest: 'uploads/' });
 const WITHDRAWAL_FEE = Number(process.env.WITHDRAW_FEE);
 
 // Middleware applied to all routes in this file
-// Middleware applied to all routes in this file
-router.use('/admin', authenticateToken);
+router.use('/admin', verifyAdmin);
 
 // --- Resources (Downloads) ---
 router.get('/admin/resources', async (req, res) => {
@@ -136,11 +136,14 @@ router.delete('/admin/categories/:id', async (req, res) => {
 
 // --- Routers ---
 router.post('/admin/routers', async (req, res) => {
-    const { name, mikhmon_url } = req.body;
-    if (!name || !mikhmon_url) return res.status(400).json({ error: 'Name and URL are required' });
+    const { name, mikhmon_url, api_host, api_user, api_pass, api_port } = req.body;
+    if (!name || (!mikhmon_url && !api_host)) return res.status(400).json({ error: 'Name and either URL or Host are required' });
 
     try {
-        const [result] = await db.query('INSERT INTO routers (name, mikhmon_url, admin_id) VALUES (?, ?, ?)', [name, mikhmon_url, req.user.id]);
+        const [result] = await db.query(
+            'INSERT INTO routers (name, mikhmon_url, api_host, api_user, api_pass, api_port, admin_id) VALUES (?, ?, ?, ?, ?, ?, ?)', 
+            [name, mikhmon_url || '', api_host || null, api_user || null, api_pass || null, api_port || 8728, req.user.id]
+        );
         req.io.emit('data_update', { type: 'routers' });
         res.json({ id: result.insertId, name, message: 'Router added' });
     } catch (err) {
@@ -164,6 +167,11 @@ router.get('/admin/routers/stats', async (req, res) => {
             SELECT 
                 r.id, 
                 r.name,
+                r.mikhmon_url,
+                r.api_host,
+                r.api_user,
+                r.api_pass,
+                r.api_port,
                 (SELECT COUNT(*) FROM vouchers v 
                  JOIN packages p ON v.package_id = p.id 
                  WHERE p.router_id = r.id AND v.is_used = FALSE AND v.admin_id = ?) as voucher_stock,
@@ -195,13 +203,13 @@ router.delete('/admin/routers/:id', async (req, res) => {
 });
 
 router.put('/admin/routers/:id', async (req, res) => {
-    const { name, mikhmon_url } = req.body;
-    if (!name || !mikhmon_url) return res.status(400).json({ error: 'Name and URL are required' });
+    const { name, mikhmon_url, api_host, api_user, api_pass, api_port } = req.body;
+    if (!name || (!mikhmon_url && !api_host)) return res.status(400).json({ error: 'Name and either URL or Host are required' });
 
     try {
         const [result] = await db.query(
-            'UPDATE routers SET name = ?, mikhmon_url = ? WHERE id = ? AND admin_id = ?',
-            [name, mikhmon_url, req.params.id, req.user.id]
+            'UPDATE routers SET name = ?, mikhmon_url = ?, api_host = ?, api_user = ?, api_pass = ?, api_port = ? WHERE id = ? AND admin_id = ?',
+            [name, mikhmon_url || '', api_host || null, api_user || null, api_pass || null, api_port || 8728, req.params.id, req.user.id]
         );
 
         if (result.affectedRows === 0) {
@@ -306,6 +314,43 @@ router.put('/admin/packages/:id', async (req, res) => {
     }
 });
 
+router.delete('/admin/packages/:id', async (req, res) => {
+    const packageId = req.params.id;
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        // 1. Verify Package Ownership
+        const [pkg] = await connection.query('SELECT id FROM packages WHERE id = ? AND admin_id = ?', [packageId, req.user.id]);
+        if (pkg.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Package not found' });
+        }
+
+        // 2. Delete Associated Vouchers
+        await connection.query('DELETE FROM vouchers WHERE package_id = ?', [packageId]);
+
+        // 3. Unlink from Transactions (Set package_id to NULL to preserve history)
+        await connection.query('UPDATE transactions SET package_id = NULL WHERE package_id = ?', [packageId]);
+
+        // 4. Delete the Package
+        await connection.query('DELETE FROM packages WHERE id = ?', [packageId]);
+
+        await connection.commit();
+        req.io.emit('data_update', { type: 'packages' });
+        req.io.emit('data_update', { type: 'vouchers' });
+        res.json({ message: 'Package and associated vouchers deleted successfully' });
+
+    } catch (err) {
+        await connection.rollback();
+        console.error('Delete Package Error:', err);
+        res.status(500).json({ error: 'Failed to delete package' });
+    } finally {
+        connection.release();
+    }
+});
+
 // --- Vouchers ---
 router.post('/admin/vouchers/import', upload.single('file'), async (req, res) => {
     const { package_id, router_id } = req.body; // router_id might come from frontend if package is global
@@ -338,19 +383,20 @@ router.post('/admin/vouchers/import', upload.single('file'), async (req, res) =>
     const processBatch = async (batch) => {
         if (batch.length === 0) return;
 
-        // Adaptive placeholder: code, comment, package_ref
+        // Adaptive placeholder: code, comment, package_ref, validity
         const strictValues = [];
         batch.forEach(row => {
-            const code = row.code || (Object.values(row)[0]); // First column as code
-            const comment = row.comment || null;
+            const code = row.Username || row.code || (Object.values(row)[0]); // Map Username or first column as code
+            const comment = row.Comment || row.comment || null;
             const pkgRef = row.package_ref || null;
-            strictValues.push(package_id, code, comment, pkgRef, req.user.id, finalRouterId);
+            const validity = row['Time Limit'] || row.validity || null;
+            strictValues.push(package_id, code, comment, pkgRef, req.user.id, finalRouterId, validity);
         });
 
-        // We added router_id to the insert columns
-        const strictPlaceholder = batch.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        // We added router_id and validity to the insert columns
+        const strictPlaceholder = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
 
-        const [result] = await db.query(`INSERT IGNORE INTO vouchers (package_id, code, comment, package_ref, admin_id, router_id) VALUES ${strictPlaceholder}`, strictValues);
+        const [result] = await db.query(`INSERT IGNORE INTO vouchers (package_id, code, comment, package_ref, admin_id, router_id, validity) VALUES ${strictPlaceholder}`, strictValues);
         totalInserted += result.affectedRows;
     };
 
@@ -615,6 +661,18 @@ router.post('/admin/sell-voucher', async (req, res) => {
         } else {
             console.log(`[SellVoucher] SMS Sent to ${phone_number}`);
         }
+        
+        // --- SYNC TO MIKROTIK (ADMIN MANUAL) ---
+        try {
+            await addHotspotUser({
+                name: voucher.code,
+                password: voucher.code,
+                router_id: pkg.router_id,
+                validity_hours: pkg.validity_hours
+            });
+        } catch (routerErr) {
+            console.error(`[SellVoucher] MikroTik Sync Error:`, routerErr.message);
+        }
 
         await connection.commit();
         req.io.emit('data_update', { type: 'vouchers' });
@@ -632,6 +690,23 @@ router.post('/admin/sell-voucher', async (req, res) => {
         res.status(500).json({ error: 'Transaction failed' });
     } finally {
         connection.release();
+    }
+});
+
+router.post('/admin/vouchers/batch-delete', async (req, res) => {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'No IDs provided' });
+    }
+
+    try {
+        const placeholders = ids.map(() => '?').join(',');
+        await db.query(`DELETE FROM vouchers WHERE id IN (${placeholders}) AND admin_id = ?`, [...ids, req.user.id]);
+        req.io.emit('data_update', { type: 'vouchers' });
+        res.json({ message: `Deleted ${ids.length} vouchers` });
+    } catch (err) {
+        console.error('Batch Delete Vouchers Error:', err);
+        res.status(500).json({ error: 'Failed to delete vouchers' });
     }
 });
 
@@ -657,7 +732,7 @@ router.get('/admin/transactions', async (req, res) => {
     try {
         const { router_id } = req.query;
         let query = `
-            SELECT t.id, t.transaction_ref, t.phone_number, t.amount, t.status, t.payment_method, t.created_at, t.voucher_code, t.webhook_data, p.name as package_name, r.name as router_name
+            SELECT t.id, t.transaction_ref, t.phone_number, t.customer_name, t.amount, t.status, t.payment_method, t.created_at, t.voucher_code, t.webhook_data, COALESCE(p.name, t.package_name) as package_name, r.name as router_name
             FROM transactions t
             LEFT JOIN packages p ON t.package_id = p.id
             LEFT JOIN routers r ON t.router_id = r.id
@@ -769,30 +844,75 @@ router.get('/admin/stats', async (req, res) => {
 
         const statsQuery = `
             SELECT 
-                COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(created_at, '+00:00', '+03:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '+03:00')) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as daily_revenue,
-                COALESCE(SUM(CASE WHEN YEARWEEK(CONVERT_TZ(created_at, '+00:00', '+03:00'), 1) = YEARWEEK(CONVERT_TZ(NOW(), '+00:00', '+03:00'), 1) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as weekly_revenue,
-                COALESCE(SUM(CASE WHEN MONTH(CONVERT_TZ(created_at, '+00:00', '+03:00')) = MONTH(CONVERT_TZ(NOW(), '+00:00', '+03:00')) AND YEAR(CONVERT_TZ(created_at, '+00:00', '+03:00')) = YEAR(CONVERT_TZ(NOW(), '+00:00', '+03:00')) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as monthly_revenue,
-                COALESCE(SUM(CASE WHEN YEAR(CONVERT_TZ(created_at, '+00:00', '+03:00')) = YEAR(CONVERT_TZ(NOW(), '+00:00', '+03:00')) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as yearly_revenue,
+                COALESCE(SUM(CASE WHEN DATE(created_at) = DATE(NOW()) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as daily_revenue,
+                COALESCE(SUM(CASE WHEN YEARWEEK(created_at, 1) = YEARWEEK(NOW(), 1) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as weekly_revenue,
+                COALESCE(SUM(CASE WHEN MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW()) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as monthly_revenue,
+                COALESCE(SUM(CASE WHEN YEAR(created_at) = YEAR(NOW()) THEN (amount - COALESCE(fee,0)) ELSE 0 END), 0) as yearly_revenue,
                 COALESCE(SUM(amount - COALESCE(fee,0)), 0) as total_revenue
             FROM transactions
             ${financeWhere}
         `;
 
-        const [transStats] = await db.query(statsQuery, financeParams);
+        // --- Counts filters (prepared ahead of time) ---
+        let countsWhere = "WHERE admin_id = ?";
+        const countsParams = [adminId];
+        if (router_id) {
+            countsWhere += " AND router_id = ?";
+            countsParams.push(router_id);
+        }
 
-        // 1b. Agent Sales Stats
-        const [agentStats] = await db.query(`
-            SELECT 
-                COALESCE(SUM(amount), 0) as total_agent_sales,
-                COALESCE(SUM(CASE WHEN is_settled = 1 THEN amount ELSE 0 END), 0) as settled_agent_sales,
-                COALESCE(SUM(CASE WHEN is_settled = 0 THEN amount ELSE 0 END), 0) as unsettled_agent_sales
-            FROM transactions
-            WHERE admin_id = ? AND status = 'success' AND payment_method = 'cash_agent'
-        `, [adminId]);
+        let txCountsWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual' AND transaction_ref NOT LIKE 'SMS-%' ";
+        const txCountsParams = [adminId];
+        if (router_id) {
+            txCountsWhere += " AND router_id = ?";
+            txCountsParams.push(router_id);
+        }
 
-        // ALWAYS Global Stats (Balance) - EXCLUDE AGENT SALES (cash_agent) AND MANUAL
-        const [globalRevRows] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as rev FROM transactions WHERE admin_id = ? AND status = 'success' AND payment_method != 'cash_agent' AND payment_method != 'manual'", [adminId]);
-        const [withdrawStats] = await db.query('SELECT COALESCE(SUM(amount + COALESCE(fee, 0)), 0) as total_withdrawn FROM withdrawals WHERE admin_id = ? AND (status="success" OR status="pending")', [adminId]);
+        let voucherWhere = "WHERE admin_id = ? AND is_used = 0";
+        const voucherParams = [adminId];
+        if (router_id) {
+            voucherWhere += " AND router_id = ?";
+            voucherParams.push(router_id);
+        }
+
+        let payCountsWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual'";
+        const payCountsParams = [adminId];
+        if (router_id) {
+            payCountsWhere += " AND router_id = ?";
+            payCountsParams.push(router_id);
+        }
+
+        // --- RUN ALL QUERIES IN PARALLEL ---
+        const [
+            [transStats],
+            [agentStats],
+            [globalRevRows],
+            [withdrawStats],
+            [catCount],
+            [pkgCount],
+            [boughtCount],
+            [voucherCount],
+            [paymentCount],
+            [adminInfo]
+        ] = await Promise.all([
+            db.query(statsQuery, financeParams),
+            db.query(`
+                SELECT 
+                    COALESCE(SUM(amount), 0) as total_agent_sales,
+                    COALESCE(SUM(CASE WHEN is_settled = 1 THEN amount ELSE 0 END), 0) as settled_agent_sales,
+                    COALESCE(SUM(CASE WHEN is_settled = 0 THEN amount ELSE 0 END), 0) as unsettled_agent_sales
+                FROM transactions
+                WHERE admin_id = ? AND status = 'success' AND payment_method = 'cash_agent'
+            `, [adminId]),
+            db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as rev FROM transactions WHERE admin_id = ? AND status = 'success' AND payment_method != 'cash_agent' AND payment_method != 'manual'", [adminId]),
+            db.query('SELECT COALESCE(SUM(amount + COALESCE(fee, 0)), 0) as total_withdrawn FROM withdrawals WHERE admin_id = ? AND (status="success" OR status="pending")', [adminId]),
+            db.query(`SELECT count(*) as count FROM categories ${countsWhere}`, countsParams),
+            db.query(`SELECT count(*) as count FROM packages ${countsWhere}`, countsParams),
+            db.query(`SELECT count(*) as count FROM transactions ${txCountsWhere}`, txCountsParams),
+            db.query(`SELECT count(*) as count FROM vouchers ${voucherWhere}`, voucherParams),
+            db.query(`SELECT count(*) as count FROM transactions ${payCountsWhere}`, payCountsParams),
+            db.query('SELECT subscription_expiry FROM admins WHERE id = ?', [adminId])
+        ]);
 
         const globalRevenue = Number(globalRevRows[0].rev);
         const totalWithdrawn = Number(withdrawStats[0].total_withdrawn);
@@ -804,47 +924,6 @@ router.get('/admin/stats', async (req, res) => {
         let netBalance = totalBalance - WITHDRAWAL_FEE;
         if (netBalance < 0) netBalance = 0;
 
-        // 2. Counts (Filtered)
-        let countsWhere = "WHERE admin_id = ?";
-        const countsParams = [adminId];
-        if (router_id) {
-            countsWhere += " AND router_id = ?";
-            countsParams.push(router_id);
-        }
-
-        const [catCount] = await db.query(`SELECT count(*) as count FROM categories ${countsWhere}`, countsParams);
-        const [pkgCount] = await db.query(`SELECT count(*) as count FROM packages ${countsWhere}`, countsParams);
-
-        // Vouchers/Transactions use different specific filters
-        let txCountsWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual' AND transaction_ref NOT LIKE 'SMS-%' ";
-        const txCountsParams = [adminId];
-        if (router_id) {
-            txCountsWhere += " AND router_id = ?";
-            txCountsParams.push(router_id);
-        }
-
-        const [boughtCount] = await db.query(`SELECT count(*) as count FROM transactions ${txCountsWhere}`, txCountsParams);
-
-        // Vouchers: if router_id is global, we might want to filter by router_id if provided
-        let voucherWhere = "WHERE admin_id = ? AND is_used = 0";
-        const voucherParams = [adminId];
-        if (router_id) {
-            voucherWhere += " AND router_id = ?";
-            voucherParams.push(router_id);
-        }
-        const [voucherCount] = await db.query(`SELECT count(*) as count FROM vouchers ${voucherWhere}`, voucherParams);
-
-        // Payments Count (Filtered)
-        let payCountsWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual'";
-        const payCountsParams = [adminId];
-        if (router_id) {
-            payCountsWhere += " AND router_id = ?";
-            payCountsParams.push(router_id);
-        }
-        const [paymentCount] = await db.query(`SELECT count(*) as count FROM transactions ${payCountsWhere}`, payCountsParams);
-
-        // 3. Subscription Status
-        const [adminInfo] = await db.query('SELECT subscription_expiry FROM admins WHERE id = ?', [adminId]);
         const expiryDate = (adminInfo && adminInfo.length > 0) ? adminInfo[0].subscription_expiry : null;
 
         res.json({
@@ -1128,6 +1207,83 @@ router.post('/admin/agents/:id/settle', async (req, res) => {
     } catch (err) {
         console.error('Settle Agent Error:', err);
         res.status(500).json({ error: 'Failed to settle agent account' });
+    }
+});
+
+// Configure Multer for Ad Uploads
+const adStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const adDir = path.join(__dirname, '../../uploads/ads');
+        if (!fs.existsSync(adDir)) {
+            fs.mkdirSync(adDir, { recursive: true });
+        }
+        cb(null, adDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `ad-${req.user.id}-${Date.now()}${ext}`);
+    }
+});
+const uploadAd = multer({ 
+    storage: adStorage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'image/png') {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PNG files are allowed'), false);
+        }
+    }
+});
+
+// --- Ads Management ---
+router.post('/admin/ads/upload', uploadAd.single('ad_image'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded or invalid file type.' });
+        
+        const { target_url } = req.body;
+        const imageUrl = `/uploads/ads/${req.file.filename}`;
+        
+        await db.query(
+            'INSERT INTO ads (admin_id, image_url, target_url, status) VALUES (?, ?, ?, "pending")',
+            [req.user.id, imageUrl, target_url || null]
+        );
+        
+        res.json({ message: 'Ad uploaded successfully and is pending approval.' });
+    } catch (err) {
+        console.error('Ad Upload Error:', err);
+        res.status(500).json({ error: 'Failed to upload ad.' });
+    }
+});
+
+router.get('/admin/ads', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM ads WHERE admin_id = ? ORDER BY created_at DESC', [req.user.id]);
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch Ads Error:', err);
+        res.status(500).json({ error: 'Failed to fetch ads.' });
+    }
+});
+
+router.delete('/admin/ads/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Only allow deleting own ads
+        const [rows] = await db.query('SELECT image_url FROM ads WHERE id = ? AND admin_id = ?', [id, req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
+
+        const imageUrl = rows[0].image_url;
+        const absolutePath = path.join(__dirname, '../../', imageUrl);
+
+        await db.query('DELETE FROM ads WHERE id = ?', [id]);
+        if (fs.existsSync(absolutePath)) {
+            fs.unlinkSync(absolutePath);
+        }
+
+        res.json({ message: 'Ad deleted successfully' });
+    } catch (err) {
+        console.error('Delete Ad Error:', err);
+        res.status(500).json({ error: 'Failed to delete ad.' });
     }
 });
 

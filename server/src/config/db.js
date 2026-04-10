@@ -9,12 +9,8 @@ const db = mysql.createPool({
     port: process.env.DB_PORT || 3306,
     timezone: '+03:00',
     waitForConnections: true,
-    connectionLimit: 100,
-    queueLimit: 0,
-    ssl: {
-        rejectUnauthorized: false
-    },
-    getPublicKey: true
+    connectionLimit: 20,
+    queueLimit: 0
 });
 
 module.exports = db;

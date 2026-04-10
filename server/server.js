@@ -41,9 +41,21 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-const authLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 10,
+const userAuthLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 50,
+    message: { error: "Too many login attempts for this account. Please try again in an hour." },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.body.username || req.ip,
+});
+
+const ipAuthLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 300,
+    message: { error: "Too many login attempts from this network. Please try again in an hour." },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -61,7 +73,10 @@ const registrationRoutes = require('./src/routes/registrationRoutes');
 const agentRoutes = require('./src/routes/agentRoutes');
 
 app.use('/api', globalLimiter);
-app.use('/api/login', authLimiter);
+
+// Specific protection for login
+app.use('/api/login', ipAuthLimiter);
+app.use('/api/login', userAuthLimiter);
 
 app.use('/api', authRoutes);
 app.use('/api', publicRoutes);

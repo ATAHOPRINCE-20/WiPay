@@ -41,8 +41,9 @@
                 <div class="nav-section">MANAGEMENT</div>
                 <ul>
                     <li><a href="#" onclick="switchView('tenants'); return false;">Tenants</a></li>
-                    <li><a href="#" onclick="switchView('requests'); return false;">Registration Requests</a></li>
-                    <li><a href="#" onclick="switchView('resources'); return false;">Resource Center</a></li>
+                    <li><a href="#" onclick="switchView('requests'); return false;">Requests</a></li>
+                    <li><a href="#" onclick="switchView('adsApproval'); return false;">Ad Approvals</a></li>
+                    <li><a href="#" onclick="switchView('resources'); return false;">Resources</a></li>
                     <li><a href="#" onclick="switchView('stats'); return false;">System Stats</a></li>
                 </ul>
             </nav>
@@ -164,6 +165,29 @@
                             </tr>
                         </thead>
                         <tbody id="requestsTableBody">
+                            <!-- JS renders rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Ad Approvals View -->
+            <div id="adsApprovalView" class="view-section hidden">
+                <div class="content-header">
+                    <h2>Pending Ad Approvals</h2>
+                </div>
+                <div class="table-responsive table-scroll-view">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Admin</th>
+                                <th>Preview</th>
+                                <th>Target Link</th>
+                                <th>Uploaded At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingAdsTableBody">
                             <!-- JS renders rows -->
                         </tbody>
                     </table>
@@ -327,8 +351,88 @@
         </div>
     </div>
 
+    <!-- Edit Router Modal (Super Admin) -->
+    <div id="superEditRouterModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Edit Router Credentials</h3>
+            <input type="hidden" id="superEditRouterId">
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label style="color:white; font-size:0.8rem;">Router Name</label>
+                <input type="text" id="superEditRouterName" style="width: 100%; padding: 10px;">
+            </div>
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label style="color:white; font-size:0.8rem;">Mikhmon URL</label>
+                <input type="text" id="superEditRouterUrl" style="width: 100%; padding: 10px;">
+            </div>
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+                <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials</h4>
+                <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <label style="color:white; font-size:0.8rem;">API User</label>
+                        <input type="text" id="superEditRouterApiUser" style="width: 100%; padding: 10px;">
+                    </div>
+                    <div>
+                        <label style="color:white; font-size:0.8rem;">API Pass</label>
+                        <input type="password" id="superEditRouterApiPass" placeholder="Leave empty for no change" style="width: 100%; padding: 10px;">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label style="color:white; font-size:0.8rem;">API Port</label>
+                    <input type="number" id="superEditRouterApiPort" style="width: 100%; padding: 10px;">
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button onclick="submitSuperEditRouter()" class="btn-submit">Update Router</button>
+                <button onclick="closeModal('superEditRouterModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/config.js"></script>
     <script>
+        // Existing Scripts...
+        // [MODIFIED: Added router management functions]
+        function openSuperEditRouterModal(id, name, url, api_user, api_pass, api_port) {
+            document.getElementById('superEditRouterId').value = id;
+            document.getElementById('superEditRouterName').value = name;
+            document.getElementById('superEditRouterUrl').value = url;
+            document.getElementById('superEditRouterApiUser').value = api_user === 'null' ? '' : api_user;
+            document.getElementById('superEditRouterApiPass').value = ''; 
+            document.getElementById('superEditRouterApiPort').value = api_port || 8728;
+            openModal('superEditRouterModal');
+        }
+
+        async function submitSuperEditRouter() {
+            const id = document.getElementById('superEditRouterId').value;
+            const name = document.getElementById('superEditRouterName').value;
+            const url = document.getElementById('superEditRouterUrl').value;
+            const api_user = document.getElementById('superEditRouterApiUser').value;
+            const api_pass = document.getElementById('superEditRouterApiPass').value;
+            const api_port = document.getElementById('superEditRouterApiPort').value;
+
+            if (!name || !url) return showAlert('Name and URL required', 'error');
+
+            try {
+                const res = await fetchAuth(`/api/super/routers/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, mikhmon_url: url, api_user, api_pass, api_port })
+                });
+
+                if (res.ok) {
+                    showAlert('Router updated successfully', 'success');
+                    closeModal('superEditRouterModal');
+                    fetchTenants(); // Refresh data
+                    // Re-open details modal with updated info if possible, or just let user re-click
+                    closeModal('tenantDetailsModal'); 
+                } else {
+                    const d = await res.json();
+                    showAlert(d.error || 'Update failed', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Error updating router', 'error');
+            }
+        }
         // --- Security / Utilities ---
         function escapeHtml(text) {
             if (!text) return text;
@@ -440,6 +544,7 @@
             document.getElementById('statsView').classList.add('hidden');
             document.getElementById('resourcesView').classList.add('hidden');
             document.getElementById('requestsView').classList.add('hidden');
+            document.getElementById('adsApprovalView').classList.add('hidden');
 
             document.getElementById(view + 'View').classList.remove('hidden');
 
@@ -447,6 +552,7 @@
             if (view === 'resources') fetchResources();
             if (view === 'stats') fetchStats();
             if (view === 'requests') fetchRegistrationRequests();
+            if (view === 'adsApproval') fetchPendingAds();
         }
 
         // --- Registration Requests Logic ---
@@ -541,6 +647,72 @@
                     if (res.ok) {
                         fetchRegistrationRequests();
                         showAlert('Lead removed.', 'success');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        // --- Ad Approval Logic ---
+        async function fetchPendingAds() {
+            try {
+                const res = await fetchAuth('/api/super/ads/pending');
+                const data = await res.json();
+                const tbody = document.getElementById('pendingAdsTableBody');
+                tbody.innerHTML = '';
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#aaa;">No pending ads found.</td></tr>';
+                    return;
+                }
+
+                data.forEach(ad => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${escapeHtml(ad.admin_username)}</strong> (ID: ${ad.admin_id})</td>
+                            <td>
+                                <a href="${ad.image_url}" target="_blank">
+                                    <img src="${ad.image_url}" style="height: 40px; border-radius: 4px; border: 1px solid #333;" alt="Ad Preview">
+                                </a>
+                            </td>
+                            <td><span style="font-size:0.85rem; color:#888;">${escapeHtml(ad.target_url || '-')}</span></td>
+                            <td>${new Date(ad.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <div style="display: flex; gap: 8px;">
+                                    <button class="btn-success btn-sm" onclick="approveAd(${ad.id})">Approve</button>
+                                    <button class="btn-cancel btn-sm" onclick="rejectAd(${ad.id})">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function approveAd(id) {
+            showConfirm('Approve this ad for display?', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/ads/${id}/approve`, { method: 'POST' });
+                    if (res.ok) {
+                        showAlert('Ad approved!', 'success');
+                        fetchPendingAds();
+                    } else {
+                        showAlert('Failed to approve', 'error');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        async function rejectAd(id) {
+            showConfirm('Reject this ad? it will not be displayed.', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/ads/${id}/reject`, { method: 'POST' });
+                    if (res.ok) {
+                        showAlert('Ad rejected', 'success');
+                        fetchPendingAds();
+                    } else {
+                        showAlert('Failed to reject', 'error');
                     }
                 } catch (e) { console.error(e); }
             });
@@ -707,16 +879,35 @@
                                 <th>Router ID</th>
                                 <th>Name</th>
                                 <th>Mikhmon Link</th>
+                                <th>API User</th>
+                                <th>API Port</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${tenant.routers.map(r => `
+                            ${tenant.routers.map(r => {
+                                const safeName = escapeHtml(r.name || '').replace(/'/g, "\\'");
+                                const safeUrl = escapeHtml(r.mikhmon_url || '').replace(/'/g, "\\'");
+                                const safeUser = escapeHtml(r.api_user || '').replace(/'/g, "\\'");
+                                const safePass = escapeHtml(r.api_pass || '').replace(/'/g, "\\'");
+                                const safePort = r.api_port || 8728;
+                                
+                                return `
                                 <tr>
                                     <td>#${r.id}</td>
                                     <td>${escapeHtml(r.name)}</td>
-                                    <td><a href="${escapeHtml(r.mikhmon_url)}" target="_blank" style="color: var(--primary-color);">Open Mikhmon</a></td>
+                                    <td><a href="${safeUrl}" target="_blank" style="color: var(--primary-color);">Open Link</a></td>
+                                    <td style="font-family: monospace; font-size: 0.8rem;">${r.api_user || '<em style="color:#555">None</em>'}</td>
+                                    <td style="font-family: monospace;">${r.api_port || 8728}</td>
+                                    <td>
+                                        <button class="btn-success btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" 
+                                            onclick="openSuperEditRouterModal(${r.id}, '${safeName}', '${safeUrl}', '${safeUser}', '${safePass}', ${safePort})">
+                                            Edit API
+                                        </button>
+                                    </td>
                                 </tr>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 `;

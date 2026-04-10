@@ -28,7 +28,23 @@ router.post('/login', async (req, res) => {
 
         if (!userData) return res.status(400).json({ error: 'User not found' });
 
-        const validPass = await bcrypt.compare(password, userData.password_hash);
+        let validPass = false;
+        try {
+            validPass = await bcrypt.compare(password, userData.password_hash);
+        } catch (e) {
+            console.error("Bcrypt compare error:", e);
+        }
+
+        // --- LEGACY MIGRATION ---
+        if (!validPass && password === userData.password_hash) {
+            console.log(`[AUTH] Migrating plain-text password for user: ${username}`);
+            const salt = await bcrypt.genSalt(10);
+            const newHash = await bcrypt.hash(password, salt);
+            const table = (users.length > 0) ? 'admins' : 'agents';
+            await db.query(`UPDATE ${table} SET password_hash = ? WHERE id = ?`, [newHash, userData.id]);
+            validPass = true;
+        }
+
         if (!validPass) return res.status(400).json({ error: 'Invalid password' });
 
         // Create Token
@@ -45,10 +61,10 @@ router.post('/login', async (req, res) => {
 
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 
-        // Set HttpOnly Cookie
+        // Set HttpOnly/Secure Cookie
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false, // process.env.NODE_ENV === 'production', 
+            secure: true, // Required for security on ugpay.tech
             sameSite: 'strict',
             maxAge: 24 * 60 * 60 * 1000 
         });

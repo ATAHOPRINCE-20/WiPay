@@ -34,4 +34,12 @@ function verifySuperAdmin(req, res, next) {
     }
 }
 
-module.exports = { authenticateToken, verifySuperAdmin, JWT_SECRET };
+function verifyAdmin(req, res, next) {
+    if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Access denied: Admin only' });
+    }
+}
+
+module.exports = { authenticateToken, verifySuperAdmin, verifyAdmin, JWT_SECRET };

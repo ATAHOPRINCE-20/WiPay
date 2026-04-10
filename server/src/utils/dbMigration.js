@@ -2,237 +2,225 @@ const db = require("../config/db");
 
 async function runPendingMigrations() {
   console.log("Checking for pending database migrations...");
-  try {
-    // Migration 1: Add is_active to packages
-    const addColumnQuery = `
-            ALTER TABLE packages
-            ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1;
-        `;
 
-    await db.query(addColumnQuery);
-    console.log("Migration Success: Added is_active column to packages table.");
-  } catch (err) {
-    if (err.code === "ER_DUP_FIELDNAME") {
-      // This is fine, column exists
-      console.log("Migration Info: is_active column already exists.");
-    } else {
-      console.error("Migration Error:", err);
-      // Don't crash the server, just log
+  // Helper to wrap migrations in try-catch
+  const migrate = async (name, query) => {
+    try {
+      await db.query(query);
+      console.log(`Migration Success: ${name}`);
+    } catch (err) {
+      if (err.code === "ER_DUP_FIELDNAME" || err.code === "ER_TABLE_EXISTS_ERROR") {
+        console.log(`Migration Info: ${name} (already exists).`);
+      } else {
+        console.error(`Migration Error (${name}):`, err.message);
+      }
     }
-  }
+  };
 
-  try {
-    // Migration 2: Create routers table
-    const createRoutersTableQuery = `
-            CREATE TABLE IF NOT EXISTS routers (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                admin_id INT NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                mikhmon_url TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
-            );
-        `;
-    await db.query(createRoutersTableQuery);
-    console.log("Migration Success: Routers table checked/created.");
-  } catch (err) {
-    console.error("Migration Error (Routers Table):", err);
-  }
+  // 1. Packages is_active
+  await migrate("is_active in packages", "ALTER TABLE packages ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1");
 
-  try {
-    // Migration 3: Add router_id to transactions
-    const addRouterColumnQuery = `
-            ALTER TABLE transactions
-            ADD COLUMN router_id INT DEFAULT NULL;
-        `;
-    await db.query(addRouterColumnQuery);
-    console.log("Migration Success: Added router_id to transactions table.");
-  } catch (err) {
-    if (err.code === "ER_DUP_FIELDNAME") {
-      console.log(
-        "Migration Info: router_id column already exists in transactions.",
-      );
-    } else {
-      console.error("Migration Error (Transactions router_id):", err);
-    }
-  }
+  // 2. Routers table
+  await migrate("Routers table", `
+    CREATE TABLE IF NOT EXISTS routers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      admin_id INT NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      mikhmon_url TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+    )
+  `);
 
-  try {
-    // Migration 4: Allow NULL for package_id in transactions (for safe deletion)
-    const alterPackageIdQuery = `
-            ALTER TABLE transactions
-            MODIFY COLUMN package_id INT NULL;
-        `;
-    await db.query(alterPackageIdQuery);
-    console.log("Migration Success: transactions.package_id is now nullable.");
-  } catch (err) {
-    console.error("Migration Error (Transactions package_id):", err);
-  }
+  // 3. Router_id in transactions
+  await migrate("router_id in transactions", "ALTER TABLE transactions ADD COLUMN router_id INT DEFAULT NULL");
 
-  try {
-    // Migration 5: Add subscription_expiry to admins
-    const addSubExpiryQuery = `
-            ALTER TABLE admins
-            ADD COLUMN subscription_expiry DATETIME DEFAULT NULL AFTER billing_type;
-        `;
-    await db.query(addSubExpiryQuery);
-    console.log(
-      "Migration Success: Added subscription_expiry to admins table.",
-    );
-  } catch (err) {
-    if (err.code === "ER_DUP_FIELDNAME") {
-      console.log(
-        "Migration Info: subscription_expiry column already exists in admins.",
-      );
-    } else {
-      console.error("Migration Error (Admins sub_expiry):", err);
-    }
-  }
-  try {
-    // Migration 6: Add fee column to withdrawals
-    const addWithdrawalFeeQuery = `
-            ALTER TABLE withdrawals
-            ADD COLUMN fee INT DEFAULT 0 AFTER amount;
-        `;
-    await db.query(addWithdrawalFeeQuery);
-    console.log("Migration Success: Added fee column to withdrawals table.");
-  } catch (err) {
-    if (err.code === "ER_DUP_FIELDNAME") {
-      console.log("Migration Info: fee column already exists in withdrawals.");
-    } else {
-      console.error("Migration Error (Withdrawals fee):", err);
-    }
-  }
+  // 4. Nullable package_id
+  await migrate("nullable package_id", "ALTER TABLE transactions MODIFY COLUMN package_id INT NULL");
 
-  try {
-    // Migration 7: Mikhmon Auto-Login Tokens Table
-    const createMikhmonTokensTableQuery = `
-            CREATE TABLE IF NOT EXISTS mikhmon_tokens (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                admin_id INT NOT NULL,
-                token VARCHAR(64) NOT NULL,
-                expires_at DATETIME NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX (token),
-                FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
-            );
-        `;
-    await db.query(createMikhmonTokensTableQuery);
-    console.log("Migration Success: mikhmon_tokens table checked/created.");
-  } catch (err) {
-    console.error("Migration Error (Mikhmon Tokens Table):", err);
-  }
+  // 5. Subscription expiry
+  await migrate("subscription_expiry in admins", "ALTER TABLE admins ADD COLUMN subscription_expiry DATETIME DEFAULT NULL AFTER billing_type");
 
-  try {
-    // Migration 8: Idempotency Keys Table
-    const createIdempotencyTableQuery = `
-            CREATE TABLE IF NOT EXISTS idempotency_keys (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                idempotency_key VARCHAR(255) NOT NULL UNIQUE,
-                user_id INT,
-                endpoint VARCHAR(255) NOT NULL,
-                method VARCHAR(10) NOT NULL,
-                request_hash VARCHAR(64),
-                status_code INT,
-                response_body LONGTEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP DEFAULT DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 24 HOUR),
-                INDEX (idempotency_key),
-                INDEX (expires_at)
-            );
-        `;
-    await db.query(createIdempotencyTableQuery);
-    console.log("Migration Success: idempotency_keys table checked/created.");
-  } catch (err) {
-    console.error("Migration Error (Idempotency Keys Table):", err);
-  }
+  // 6. Withdrawal fee
+  await migrate("fee in withdrawals", "ALTER TABLE withdrawals ADD COLUMN fee INT DEFAULT 0 AFTER amount");
 
+  // 7. Mikhmon tokens
+  await migrate("mikhmon_tokens table", `
+    CREATE TABLE IF NOT EXISTS mikhmon_tokens (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      admin_id INT NOT NULL,
+      token VARCHAR(64) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX (token),
+      FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+    )
+  `);
+
+  // 8. Idempotency keys
+  await migrate("idempotency_keys table", `
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+      user_id INT,
+      endpoint VARCHAR(255) NOT NULL,
+      method VARCHAR(10) NOT NULL,
+      request_hash VARCHAR(64),
+      status_code INT,
+      response_body LONGTEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME DEFAULT NULL,
+      INDEX (idempotency_key),
+      INDEX (expires_at)
+    )
+  `);
+
+  // 9. Cleanup expired idempotency
   try {
-    // Migration 9: Cleanup expired idempotency keys (run periodically)
     await db.query("DELETE FROM idempotency_keys WHERE expires_at < NOW()");
     console.log("Migration Success: Expired idempotency keys cleaned up.");
   } catch (err) {
-    console.error("Migration Error (Cleanup Idempotency):", err);
+    if (err.code !== 'ER_NO_SUCH_TABLE') {
+      console.error("Migration Error (Cleanup Idempotency):", err.message);
+    }
   }
 
+  // 10. Registration requests
+  await migrate("registration_requests table", `
+    CREATE TABLE IF NOT EXISTS registration_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      first_name VARCHAR(255) NOT NULL,
+      last_name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      phone_number VARCHAR(20) NOT NULL,
+      whatsapp_number VARCHAR(20),
+      hotspot_name VARCHAR(255),
+      customer_care_contacts TEXT,
+      device_type VARCHAR(50),
+      login_method VARCHAR(50),
+      address TEXT,
+      system_usage VARCHAR(50),
+      status ENUM('pending', 'pending_otp', 'pending_approval', 'approved', 'rejected') DEFAULT 'pending_otp',
+      otp_code VARCHAR(10),
+      otp_expiry DATETIME,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Columns for Registration
+  const regCols = [
+    { name: 'otp_code', type: 'VARCHAR(10)' },
+    { name: 'otp_expiry', type: 'DATETIME' }
+  ];
+  for (const col of regCols) {
+    await migrate(`registration_requests ${col.name}`, `ALTER TABLE registration_requests ADD COLUMN ${col.name} ${col.type}`);
+  }
+
+  // Role etc for Admins
+  const adminCols = [
+    { name: 'role', type: "ENUM('super_admin', 'admin') DEFAULT 'admin'" },
+    { name: 'email', type: 'VARCHAR(255)' },
+    { name: 'business_name', type: 'VARCHAR(255)' },
+    { name: 'business_phone', type: 'VARCHAR(20)' }
+  ];
+  for (const col of adminCols) {
+    await migrate(`admins ${col.name}`, `ALTER TABLE admins ADD COLUMN ${col.name} ${col.type}`);
+  }
+
+  // 11. Customer Name in Transactions
+  await migrate("customer_name in transactions", "ALTER TABLE transactions ADD COLUMN customer_name VARCHAR(255) DEFAULT NULL");
+
+  // 12. Package Name in Transactions
+  await migrate("package_name in transactions", "ALTER TABLE transactions ADD COLUMN package_name VARCHAR(255) DEFAULT NULL");
+
+  // 13. Ads table
+  await migrate("Ads table", `
+    CREATE TABLE IF NOT EXISTS ads (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      admin_id INT NOT NULL,
+      image_url TEXT NOT NULL,
+      target_url TEXT DEFAULT NULL,
+      status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+    )
+  `);
+
+  // 14. Router API Columns
+  const routerCols = [
+    { name: "api_host", type: "VARCHAR(255) DEFAULT NULL" },
+    { name: "api_user", type: "VARCHAR(255) DEFAULT NULL" },
+    { name: "api_pass", type: "VARCHAR(255) DEFAULT NULL" },
+    { name: "api_port", type: "INT DEFAULT 8728" }
+  ];
+  for (const col of routerCols) {
+    await migrate(`routers ${col.name}`, `ALTER TABLE routers ADD COLUMN ${col.name} ${col.type}`);
+  }
+
+  // 15. Admin Tenant Token (For URL Obfuscation)
+  await migrate("tenant_token in admins", "ALTER TABLE admins ADD COLUMN tenant_token VARCHAR(64) UNIQUE DEFAULT NULL");
+  
+  // Populate existing admins with a token if they don't have one
   try {
-    // Migration 10: Create/Update registration_requests Table
-    const createRegTableQuery = `
-            CREATE TABLE IF NOT EXISTS registration_requests (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                first_name VARCHAR(255) NOT NULL,
-                last_name VARCHAR(255) NOT NULL,
-                email VARCHAR(255) NOT NULL,
-                phone_number VARCHAR(20) NOT NULL,
-                whatsapp_number VARCHAR(20),
-                hotspot_name VARCHAR(255),
-                customer_care_contacts TEXT,
-                device_type VARCHAR(50),
-                login_method VARCHAR(50),
-                address TEXT,
-                system_usage VARCHAR(50),
-                status ENUM('pending', 'pending_otp', 'pending_approval', 'approved', 'rejected') DEFAULT 'pending_otp',
-                otp_code VARCHAR(10),
-                otp_expiry DATETIME,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `;
-    await db.query(createRegTableQuery);
-    console.log("Migration Success: registration_requests table checked/created.");
-
-    // Ensure OTP columns exist if table was created by an older script
-    const columnsToEnsure = [
-        { name: 'otp_code', type: 'VARCHAR(10)' },
-        { name: 'otp_expiry', type: 'DATETIME' }
-    ];
-
-    for (const col of columnsToEnsure) {
-        try {
-            await db.query(`ALTER TABLE registration_requests ADD COLUMN ${col.name} ${col.type}`);
-            console.log(`Migration Success: Added ${col.name} to registration_requests.`);
-        } catch (e) {
-            if (e.code !== 'ER_DUP_FIELDNAME') console.error(`Migration Error (registration_requests ${col.name}):`, e);
-        }
+    const [rows] = await db.query("SELECT id FROM admins WHERE tenant_token IS NULL");
+    if (rows.length > 0) {
+      const crypto = require('crypto');
+      for (const row of rows) {
+        const token = crypto.randomBytes(6).toString('hex'); // 12 chars
+        await db.query("UPDATE admins SET tenant_token = ? WHERE id = ?", [token, row.id]);
+      }
+      console.log(`Migration Success: Populated tenant_token for ${rows.length} admins.`);
     }
+  } catch (err) {
+    console.error("Migration Error (tenant_token population):", err.message);
+  }
 
-    // Ensure status enum is updated
+  // 16. Validity in Vouchers
+  await migrate("validity in vouchers", "ALTER TABLE vouchers ADD COLUMN validity VARCHAR(50) DEFAULT NULL AFTER code");
+
+  // 16. Performance Indexes (critical for query speed)
+  const indexes = [
+    // transactions - most queried table
+    { name: 'idx_tx_admin_status', table: 'transactions', cols: 'admin_id, status' },
+    { name: 'idx_tx_admin_status_method', table: 'transactions', cols: 'admin_id, status, payment_method' },
+    { name: 'idx_tx_admin_router', table: 'transactions', cols: 'admin_id, router_id' },
+    { name: 'idx_tx_ref', table: 'transactions', cols: 'transaction_ref' },
+    { name: 'idx_tx_created', table: 'transactions', cols: 'created_at' },
+    { name: 'idx_tx_agent_status', table: 'transactions', cols: 'agent_id, status' },
+    // vouchers
+    { name: 'idx_v_pkg_used_admin', table: 'vouchers', cols: 'package_id, is_used, admin_id' },
+    { name: 'idx_v_admin_used', table: 'vouchers', cols: 'admin_id, is_used' },
+    { name: 'idx_v_admin_router', table: 'vouchers', cols: 'admin_id, router_id' },
+    { name: 'idx_v_agent', table: 'vouchers', cols: 'agent_id, is_used' },
+    // packages
+    { name: 'idx_pkg_admin', table: 'packages', cols: 'admin_id' },
+    { name: 'idx_pkg_category', table: 'packages', cols: 'category_id' },
+    { name: 'idx_pkg_router', table: 'packages', cols: 'router_id' },
+    // categories
+    { name: 'idx_cat_admin', table: 'categories', cols: 'admin_id' },
+    // withdrawals
+    { name: 'idx_wd_admin_status', table: 'withdrawals', cols: 'admin_id, status' },
+    // sms_fees
+    { name: 'idx_sms_admin_status', table: 'sms_fees', cols: 'admin_id, status' },
+    { name: 'idx_sms_ref', table: 'sms_fees', cols: 'reference' },
+    // routers
+    { name: 'idx_router_admin', table: 'routers', cols: 'admin_id' },
+  ];
+
+  for (const idx of indexes) {
     try {
-        await db.query(`ALTER TABLE registration_requests MODIFY COLUMN status ENUM('pending', 'pending_otp', 'pending_approval', 'approved', 'rejected') DEFAULT 'pending_otp'`);
-        console.log("Migration Success: registration_requests status enum updated.");
-    } catch (e) {
-        console.error("Migration Error (registration_requests status enum):", e);
+      await db.query(`CREATE INDEX ${idx.name} ON ${idx.table} (${idx.cols})`);
+      console.log(`Index Created: ${idx.name}`);
+    } catch (err) {
+      if (err.code === 'ER_DUP_KEYNAME') {
+        // Index already exists, skip
+      } else if (err.code === 'ER_NO_SUCH_TABLE') {
+        console.log(`Index Skipped (table missing): ${idx.name}`);
+      } else {
+        console.error(`Index Error (${idx.name}):`, err.message);
+      }
     }
-
-  } catch (err) {
-    console.error("Migration Error (Registration Table):", err);
-  }
-
-  try {
-    // Migration 11: Add role and other columns to admins
-    const adminCols = [
-        { name: 'role', type: "ENUM('super_admin', 'admin') DEFAULT 'admin'" },
-        { name: 'email', type: 'VARCHAR(255)' },
-        { name: 'business_name', type: 'VARCHAR(255)' },
-        { name: 'business_phone', type: 'VARCHAR(20)' }
-    ];
-
-    for (const col of adminCols) {
-        try {
-            await db.query(`ALTER TABLE admins ADD COLUMN ${col.name} ${col.type}`);
-            console.log(`Migration Success: Added ${col.name} to admins.`);
-        } catch (e) {
-            if (e.code !== 'ER_DUP_FIELDNAME') {
-                // If it's a modify case (e.g. enum), try modify
-                try {
-                    await db.query(`ALTER TABLE admins MODIFY COLUMN ${col.name} ${col.type}`);
-                } catch (e2) {
-                    console.error(`Migration Error (admins ${col.name}):`, e2);
-                }
-            }
-        }
-    }
-  } catch (err) {
-    console.error("Migration Error (Admin updates):", err);
   }
 }
 

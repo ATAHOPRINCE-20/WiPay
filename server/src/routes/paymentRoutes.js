@@ -1,11 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const db = require('../config/db');
 const sessionStore = require('../config/session');
 const { sendSMS } = require('../utils/sms');
+const { validateMobileNumber } = require('../../validateMobile');
 const { sendPaymentNotification, sendSMSPurchaseNotification, sendWithdrawalOTP, sendWithdrawalNotification, sendLowSMSBalanceWarning } = require('../utils/email');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, verifyAdmin } = require('../middleware/auth');
 const { idempotencyMiddleware, requireIdempotency } = require('../middleware/idempotency');
+const { logTransaction } = require('../utils/logger');
+const { addHotspotUser } = require('../utils/routerController');
+const path = require('path');
 require('dotenv').config();
 
 const RELWORX_API_URL = 'https://payments.relworx.com/api/mobile-money/request-payment';
@@ -56,60 +61,101 @@ router.post('/purchase', idempotencyMiddleware, async (req, res) => {
         console.log(`[GATEWAY] Payment for ${formattedPhone}, Amount: ${selectedPackage.price}, Router: ${router_id || 'N/A'}`);
 
         await db.query(`
-            INSERT INTO transactions (transaction_ref, phone_number, amount, package_id, status, admin_id, router_id)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?)
-        `, [reference, formattedPhone, selectedPackage.price, package_id, selectedPackage.admin_id, router_id || null]);
+            INSERT INTO transactions (transaction_ref, phone_number, customer_name, amount, package_id, package_name, status, admin_id, router_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        `, [reference, formattedPhone, null, selectedPackage.price, package_id, selectedPackage.name, selectedPackage.admin_id, router_id || null]);
 
-        const response = await fetch(RELWORX_API_URL, {
-            method: 'POST',
+
+        const response = await axios.post(RELWORX_API_URL, {
+            account_no: RELWORX_ACCOUNT_NO,
+            reference: reference,
+            msisdn: formattedPhone, // Keep + for MTN/Airtel collection
+            currency: 'UGX',
+            amount: Math.round(Number(selectedPackage.price)), // Round to integer
+            description: `Voucher: ${selectedPackage.name}`
+        }, {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/vnd.relworx.v2',
                 'Authorization': `Bearer ${RELWORX_API_KEY}`
-            },
-            body: JSON.stringify({
-                account_no: RELWORX_ACCOUNT_NO,
-                reference: reference,
-                msisdn: formattedPhone,
-                currency: 'UGX',
-                amount: Number(selectedPackage.price),
-                description: `Payment for ${selectedPackage.name}`
-            })
+            }
         });
 
-        const paymentData = await response.json();
+        const paymentData = response.data;
         console.log(`[PURCHASE] Relworx Response for ${reference}:`, JSON.stringify(paymentData, null, 2));
+        logTransaction('INITIATION', 'pending', reference, { phone: formattedPhone, amount: selectedPackage.price, gateway_response: paymentData });
 
-        if (response.ok) {
-            res.json({
-                message: 'Payment request sent. Check PIN prompt.',
-                transaction_id: reference,
-                status: 'pending'
-            });
-        } else {
-            console.error('[Purchase] Gateway Failed:', JSON.stringify(paymentData, null, 2));
-            await db.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', [JSON.stringify(paymentData), reference]);
-            res.status(400).json({ error: 'Payment gateway failed', details: paymentData });
-        }
+        res.json({
+            message: 'Payment request sent. Check PIN prompt.',
+            transaction_id: reference,
+            status: 'pending'
+        });
+
+        // Background Name Capture (Triggered after response to speed up PIN prompt)
+        (async () => {
+            try {
+                const validation = await validateMobileNumber(formattedPhone);
+                if (validation && (validation.success || validation.status === 'success')) {
+                    const name = validation.customer_name || validation.name;
+                    if (name) {
+                        await db.query('UPDATE transactions SET customer_name = ? WHERE transaction_ref = ?', [name, reference]);
+                        console.log(`[PURCHASE] Post-response name capture success for ${reference}: ${name}`);
+                    }
+                }
+            } catch (err) {
+                console.error(`[PURCHASE] Post-response name capture failed for ${reference}:`, err.message);
+            }
+        })();
     } catch (err) {
-        console.error('Purchase error:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('[PURCHASE] Error:', err.response ? JSON.stringify(err.response.data, null, 2) : err.message);
+        
+        let errorData = err.response ? err.response.data : { error: err.message };
+        
+        // If the error data is a string (possibly HTML from Nginx/Gateway/WAF)
+        if (typeof errorData === 'string' && (errorData.includes('<html>') || errorData.includes('nginx'))) {
+            errorData = { 
+                success: false, 
+                message: "Payment Gateway returned a system error (502/503). Service may be down.",
+                error_type: "gateway_html_error"
+            };
+        }
+
+        logTransaction('INITIATION_ERROR', 'error', 'N/A', { error: errorData });
+        
+        // Attempt to mark as failed in DB
+        try {
+            if (err.config && err.config.data) {
+                const body = JSON.parse(err.config.data);
+                if (body.reference) {
+                    await db.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', 
+                        [JSON.stringify(errorData), body.reference]);
+                }
+            }
+        } catch (dbErr) {
+            console.error('[PURCHASE] Failed to log failure:', dbErr.message);
+        }
+        
+        res.status(err.response ? err.response.status : 500).json({ 
+            error: 'Payment gateway error', 
+            details: errorData 
+        });
     }
 });
 
 // Webhook Endpoint (Relworx callbacks)
 router.post('/webhook', idempotencyMiddleware, async (req, res) => {
     const data = req.body;
-    console.log('[WEBHOOK] Received:', JSON.stringify(data));
-
-    // Relworx structure usually sends { status: 'success', reference: '...', ... }
-    // Ensure we handle different potential structures or verify signature if possible.
-    // For now, checks status and reference.
+    console.log('[WEBHOOK] FULL PAYLOAD:', JSON.stringify(data));
 
     const status = (data.status || '').toLowerCase();
-    const reference = data.reference || data.payment_reference || data.customer_reference;
+    const reference = data.reference || data.payment_reference || data.customer_reference || data.external_reference;
 
-    if (!reference) return res.status(400).send('No reference provided');
+    logTransaction('WEBHOOK', status || 'unknown', reference || 'no_ref', data);
+
+    if (!reference) {
+        console.error('[WEBHOOK] Missing reference in payload');
+        return res.status(400).send('No reference provided');
+    }
 
     // --- HANDLE SMS TOPUP (SMS- Prefix) ---
     if (reference.startsWith('SMS-')) {
@@ -176,44 +222,54 @@ router.post('/webhook', idempotencyMiddleware, async (req, res) => {
             }
 
             // 4. Get Available Voucher (ATOMIC LOCK)
-            const [vouchers] = await connection.query('SELECT * FROM vouchers WHERE package_id = ? AND is_used = 0 LIMIT 1 FOR UPDATE', [tx.package_id]);
-
+            const [vouchers] = await connection.query('SELECT * FROM vouchers WHERE package_id = ? AND is_used = FALSE AND admin_id = ? LIMIT 1 FOR UPDATE', [pkg.id, pkg.admin_id]);
             if (vouchers.length === 0) {
-                 // No vouchers available - Fail the transaction? Or keep pending?
-                 // Usually better to fail or notify admin. Here we mark failed.
-                 await connection.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', [JSON.stringify(data), reference]);
-                 await connection.commit();
+                 await connection.rollback();
                  console.error(`[WEBHOOK] No vouchers available for ${reference}`);
                  return res.status(200).send('No Voucher Available');
             }
-
             const voucher = vouchers[0];
+            const validity_string = voucher.validity || null;
 
             // 5. Check SMS Balance
             const [balRows] = await connection.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [pkg.admin_id]);
             const balance = Number(balRows[0].balance || 0);
 
             // 6. Update Voucher & Transaction
+            const webName = data.customer_name || data.name || data.msisdn_name;
             await connection.query('UPDATE vouchers SET is_used = 1, used_by = ? WHERE id = ?', [tx.phone_number, voucher.id]);
             
-            // Prepare Common Success Data
             const successStatus = 'success';
-            await connection.query('UPDATE transactions SET status = ?, fee = ?, voucher_code = ?, webhook_data = ? WHERE transaction_ref = ?', 
-                [successStatus, feeMs, voucher.code, JSON.stringify(data), reference]);
+            await connection.query(`
+                UPDATE transactions 
+                SET status = ?, fee = ?, voucher_code = ?, webhook_data = ?, 
+                    customer_name = COALESCE(customer_name, ?) 
+                WHERE transaction_ref = ?`, 
+                [successStatus, feeMs, voucher.code, JSON.stringify(data), webName, reference]);
 
             let smsSent = false;
-
             if (balance >= SMS_COST) {
-                // Deduct SMS Fee
                 await connection.query('INSERT INTO sms_fees (admin_id, amount, type, description, status) VALUES (?, ?, "usage", ?, "success")',
                     [pkg.admin_id, -SMS_COST, `Voucher Sale: ${voucher.code}`]);
                 smsSent = true;
             } else {
                  console.warn(`[WEBHOOK] Insufficient SMS Balance (${balance}) for Admin ${pkg.admin_id}. SMS Skipped.`);
-                 // We still process the voucher, just don't send SMS (or don't charge for it)
             }
 
             await connection.commit();
+
+            // --- SYNC TO MIKROTIK ---
+            try {
+                await addHotspotUser({
+                    name: voucher.code,
+                    password: voucher.code,
+                    router_id: pkg.router_id,
+                    validity_hours: pkg.validity_hours,
+                    validity_string: validity_string
+                });
+            } catch (routerErr) {
+                console.error(`[WEBHOOK] MikroTik Sync Error (Ref: ${reference}):`, routerErr.message);
+            }
 
             // --- POST-COMMIT ACTIONS (Non-Blocking) ---
             req.io.emit('data_update', { type: 'payments' });
@@ -257,7 +313,7 @@ router.post('/webhook', idempotencyMiddleware, async (req, res) => {
         }
     } else if (status === 'failed') {
         await db.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', [JSON.stringify(data), reference]);
-        console.log(`[WEBHOOK] Transaction failed: ${reference}`);
+        console.log(`[WEBHOOK] Transaction failed: ${reference} - Reason: ${data.message || 'Unknown'}`);
         res.status(200).send('OK');
     } else {
         console.log(`[WEBHOOK] Status ignored: ${status}`);
@@ -377,6 +433,19 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
                             [pkg.admin_id, -SMS_COST, `Voucher Sale: ${voucher.code}`]);
                         await db.query('UPDATE transactions SET voucher_code = ? WHERE transaction_ref = ?', [voucher.code, transaction_ref]);
 
+                        // --- SYNC TO MIKROTIK (POLL) ---
+                        try {
+                            await addHotspotUser({
+                                name: voucher.code,
+                                password: voucher.code,
+                                router_id: tx.router_id,
+                                validity_hours: pkg.validity_hours,
+                                validity_string: voucher.validity
+                            });
+                        } catch (routerErr) {
+                            console.error(`[POLL] MikroTik Sync Error (Ref: ${transaction_ref}):`, routerErr.message);
+                        }
+
                         // Send SMS
                         const msg = `Payment Received! Your voucher code: ${voucher.code}. Valid for ${pkg.validity_hours} hrs.`;
                         await sendSMS(tx.phone_number, msg, pkg.admin_id);
@@ -422,6 +491,19 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
 
                         await db.query('UPDATE transactions SET status = "success", fee = ?, voucher_code = ?, webhook_data = ? WHERE transaction_ref = ?', [feeMs, voucher.code, JSON.stringify(data), transaction_ref]);
 
+                        // --- SYNC TO MIKROTIK (POLL - LOW SMS) ---
+                        try {
+                            await addHotspotUser({
+                                name: voucher.code,
+                                password: voucher.code,
+                                router_id: tx.router_id,
+                                validity_hours: pkg.validity_hours,
+                                validity_string: voucher.validity
+                            });
+                        } catch (routerErr) {
+                            console.error(`[POLL] MikroTik Sync Error (Low SMS, Ref: ${transaction_ref}):`, routerErr.message);
+                        }
+
                         req.io.emit('data_update', { type: 'vouchers' });
                         req.io.emit('data_update', { type: 'payments' });
 
@@ -464,7 +546,7 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
 });
 
 // Initiate Withdrawal (OTP)
-router.post('/admin/withdraw/initiate', authenticateToken, requireIdempotency, async (req, res) => {
+router.post('/admin/withdraw/initiate', verifyAdmin, requireIdempotency, async (req, res) => {
     const { amount, phone_number } = req.body;
     if (!amount || !phone_number) return res.status(400).json({ error: 'Required fields missing' });
 
@@ -484,13 +566,21 @@ router.post('/admin/withdraw/initiate', authenticateToken, requireIdempotency, a
         // 3. Save to DB
         await db.query('UPDATE admins SET withdrawal_otp = ?, withdrawal_otp_expiry = ? WHERE id = ?', [otp, expiry, req.user.id]);
 
-        // 4. Send Email
-        const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [req.user.id]);
-        if (adminRows.length > 0 && adminRows[0].email) {
-            sendWithdrawalOTP(adminRows[0].email, otp, adminRows[0].username);
+        // 4. Send SMS & Email
+        const msg = `Your UGPAY withdrawal authorization code is: ${otp}. Valid for 5 minutes.`;
+        await sendSMS(phone_number, msg, req.user.id);
+        
+        // Also send via Email (Brevo)
+        try {
+            const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [req.user.id]);
+            if (adminRows.length > 0 && adminRows[0].email) {
+                await sendWithdrawalOTP(adminRows[0].email, otp, adminRows[0].username);
+            }
+        } catch (emailErr) {
+            console.error('Withdrawal OTP Email Error:', emailErr);
         }
 
-        res.json({ message: 'OTP sent to email', step: 'otp' });
+        res.json({ message: 'OTP sent to SMS and Email', step: 'otp' });
 
     } catch (err) {
         console.error('Initiate Withdraw Error:', err);
@@ -499,7 +589,7 @@ router.post('/admin/withdraw/initiate', authenticateToken, requireIdempotency, a
 });
 
 // Admin Withdraw (Confirm)
-router.post('/admin/withdraw', authenticateToken, requireIdempotency, async (req, res) => {
+router.post('/admin/withdraw', verifyAdmin, requireIdempotency, async (req, res) => {
     const { amount, phone_number, description, otp } = req.body;
 
     if (!amount || !phone_number || !otp) return res.status(400).json({ error: 'Required fields missing including OTP' });
@@ -595,7 +685,7 @@ router.post('/admin/withdraw', authenticateToken, requireIdempotency, async (req
     }
 });
 
-router.get('/admin/my-transactions', authenticateToken, async (req, res) => {
+router.get('/admin/my-transactions', verifyAdmin, async (req, res) => {
     try {
         const query = `
             SELECT 

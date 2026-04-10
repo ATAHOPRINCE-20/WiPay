@@ -9,7 +9,7 @@ import * as vm from './modules/view-manager.js';
 import * as dh from './modules/data-handlers.js';
 import * as charts from './modules/charts.js';
 
-console.log("DASHBOARD MODULE LOADED");
+
 
 // --- Expose API & UI Helpers ---
 window.fetchAuth = api.fetchAuth;
@@ -45,6 +45,11 @@ window.fetchPackagesList = dh.fetchPackagesList;
 window.createPackage = dh.createPackage;
 window.submitEditPackage = dh.submitEditPackage;
 window.togglePackageStatus = dh.togglePackageStatus;
+window.deletePackage = dh.deletePackage;
+window.openAddPackageModal = async () => {
+    await dh.loadCategoriesForSelect('pkgCategory');
+    ui.openDashModal('addPackageModal');
+};
 window.openEditPackageModal = async (id, name, price, catId) => {
     document.getElementById('editPkgId').value = id;
     document.getElementById('editPkgName').value = name;
@@ -93,10 +98,17 @@ window.submitEditRouter = dh.submitEditRouter;
 window.deleteRouter = dh.deleteRouter;
 window.openMikhmon = dh.openMikhmon;
 window.openCheckSiteModal = dh.openCheckSiteModal;
-window.openEditRouterModal = (id, name, url) => {
+
+window.fetchAds = dh.fetchAds;
+window.uploadAd = dh.uploadAd;
+window.deleteAd = dh.deleteAd;
+window.openEditRouterModal = (id, name, url, api_user, api_pass, api_port) => {
     document.getElementById('editRouterId').value = id;
     document.getElementById('editRouterName').value = name;
     document.getElementById('editRouterUrl').value = url;
+    document.getElementById('editRouterApiUser').value = api_user || '';
+    document.getElementById('editRouterApiPass').value = ''; // Always clear password for security
+    document.getElementById('editRouterApiPort').value = api_port || 8728;
     ui.openDashModal('editRouterModal');
 };
 
@@ -111,6 +123,7 @@ window.openAssignVoucherModal = dh.openAssignVoucherModal;
 
 window.fetchDownloadsList = dh.fetchDownloadsList;
 window.fetchBoughtVouchersList = dh.fetchBoughtVouchersList;
+window.filterBoughtVouchers = dh.filterBoughtVouchers;
 window.fetchMyTransactions = dh.fetchMyTransactions;
 window.submitChangePass = dh.submitChangePass;
 window.startSubscriptionRenewal = dh.startSubscriptionRenewal;
@@ -156,14 +169,17 @@ window.viewPackageDetails = (index) => {
                     </div>
                 </div>
                 
-                <div class="modal-actions" style="margin-top: 0; gap: 12px;">
-                    <button class="btn-submit" onclick="closeDashModal('packageDetailModal'); openEditPackageModal(${data.id}, '${data.name.replace(/'/g, "\\'")}', ${data.price}, ${data.category_id})">
-                        <i class="fas fa-edit"></i> Edit Package
+                <div class="modal-actions" style="margin-top: 0; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn-submit" style="flex: 1; min-width: 140px;" onclick="closeDashModal('packageDetailModal'); openEditPackageModal(${data.id}, '${data.name.replace(/'/g, "\\'")}', ${data.price}, ${data.category_id})">
+                        <i class="fas fa-edit"></i> Edit
                     </button>
                     ${isActive 
-                        ? `<button class="btn-danger" style="flex: 1;" onclick="togglePackageStatus(${data.id}); closeDashModal('packageDetailModal');">Deactivate</button>` 
-                        : `<button class="btn-success" style="flex: 1;" onclick="togglePackageStatus(${data.id}); closeDashModal('packageDetailModal');">Activate</button>`
+                        ? `<button class="btn-cancel" style="flex: 1; min-width: 140px;" onclick="togglePackageStatus(${data.id}); closeDashModal('packageDetailModal');">Deactivate</button>` 
+                        : `<button class="btn-success" style="flex: 1; min-width: 140px;" onclick="togglePackageStatus(${data.id}); closeDashModal('packageDetailModal');">Activate</button>`
                     }
+                    <button class="btn-danger" style="flex: 1; min-width: 140px; background-color: #f44336;" onclick="closeDashModal('packageDetailModal'); deletePackage(${data.id}, '${data.name.replace(/'/g, "\\'")}')">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
                 </div>
             `;
             ui.openDashModal('packageDetailModal');
@@ -199,6 +215,7 @@ window.viewGenericDetails = (type, index) => {
             html = `
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                     <div><strong style="color: #888; font-size: 0.8rem;">VOUCHER CODE</strong><br><span style="font-size: 1.1rem; font-weight: bold; color: #03a9f4;">${ui.escapeHtml(data.voucher_code || 'Auto-Assigned')}</span></div>
+                    <div><strong style="color: #888; font-size: 0.8rem;">BUYER NAME</strong><br>${ui.escapeHtml(data.customer_name || '-')}</div>
                     <div><strong style="color: #888; font-size: 0.8rem;">PHONE</strong><br>${ui.escapeHtml(data.phone_number)}</div>
                     <div><strong style="color: #888; font-size: 0.8rem;">PACKAGE</strong><br>${ui.escapeHtml(data.package_name || '-')}</div>
                     <div><strong style="color: #888; font-size: 0.8rem;">AMOUNT</strong><br>${Number(data.amount).toLocaleString()} UGX</div>
@@ -231,9 +248,29 @@ window.viewTransactionDetails = (index) => {
     if (data.webhook_data) {
         try {
             const rawData = typeof data.webhook_data === 'string' ? JSON.parse(data.webhook_data) : data.webhook_data;
-            webhookHtml = `<pre style="background: #111; padding: 10px; border-radius: 5px; color: #4caf50; font-size: 0.85rem; overflow-x: auto; max-height: 300px;">${JSON.stringify(rawData, null, 2)}</pre>`;
+            
+            // Check for specific common gateway errors to show them nicely
+            if (rawData.message && (rawData.success === false || data.status === 'failed')) {
+                webhookHtml = `<div style="background: rgba(244, 67, 54, 0.1); border-left: 4px solid #f44336; padding: 12px; border-radius: 4px; color: #ff8a80;">
+                    <div style="font-weight: bold; margin-bottom: 5px; text-transform: uppercase; font-size: 0.75rem; opacity: 0.8;">GateWay Error</div>
+                    <div style="font-size: 0.95rem;">${ui.escapeHtml(rawData.message)}</div>
+                    ${rawData.error_code ? `<div style="margin-top: 5px; font-family: monospace; font-size: 0.75rem; opacity: 0.7;">Error Code: ${rawData.error_code}</div>` : ''}
+                </div>`;
+            } else {
+                webhookHtml = `<pre style="background: #111; padding: 10px; border-radius: 5px; color: #4caf50; font-size: 0.85rem; overflow-x: auto; max-height: 300px;">${JSON.stringify(rawData, null, 2)}</pre>`;
+            }
         } catch (e) {
-            webhookHtml = `<pre style="background: #111; padding: 10px; border-radius: 5px; color: #f44336; font-size: 0.85rem;">Error parsing logs: ${data.webhook_data}</pre>`;
+            // Check if it's likely an Nginx HTML error (like 502)
+            if (data.webhook_data.includes('<html>') || data.webhook_data.includes('502 Bad Gateway')) {
+                webhookHtml = `<div style="background: rgba(244, 67, 54, 0.1); border-left: 4px solid #f44336; padding: 15px; border-radius: 4px; text-align: center;">
+                    <div style="font-size: 2rem; margin-bottom: 10px;">🔌</div>
+                    <div style="font-weight: bold; color: #f44336; margin-bottom: 5px;">502 Bad Gateway</div>
+                    <div style="color: #eee; font-size: 0.9rem;">The payment gateway is currently unreachable. This usually means their service is down or under maintenance.</div>
+                    <div style="margin-top: 10px; font-size: 0.7rem; color: #888;">Raw error: Nginx Service Response</div>
+                </div>`;
+            } else {
+                webhookHtml = `<pre style="background: #111; padding: 10px; border-radius: 5px; color: #f44336; font-size: 0.85rem;">Error parsing logs: ${ui.escapeHtml(data.webhook_data)}</pre>`;
+            }
         }
     }
 
@@ -241,6 +278,7 @@ window.viewTransactionDetails = (index) => {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
             <div><strong style="color: #888; font-size: 0.8rem;">REFERENCE</strong><br><span style="font-size: 0.9rem;">${ui.escapeHtml(ref)}</span></div>
             <div><strong style="color: #888; font-size: 0.8rem;">STATUS</strong><br><span style="color: ${data.status === 'success' ? '#4caf50' : '#f44336'}; font-weight: bold;">${data.status.toUpperCase()}</span></div>
+            <div><strong style="color: #888; font-size: 0.8rem;">BUYER NAME</strong><br>${ui.escapeHtml(data.customer_name || '-')}</div>
             <div><strong style="color: #888; font-size: 0.8rem;">PHONE</strong><br>${ui.escapeHtml(data.phone_number)}</div>
             <div><strong style="color: #888; font-size: 0.8rem;">AMOUNT</strong><br>${Number(data.amount).toLocaleString()} UGX</div>
             <div><strong style="color: #888; font-size: 0.8rem;">PACKAGE</strong><br>${ui.escapeHtml(data.package_name || '-')}</div>
@@ -265,7 +303,6 @@ window.toggleStats = () => {
 };
 
 window.onRouterFilterChange = (val) => {
-    console.log('Router Filter Changed:', val);
     dh.setCurrentRouterFilter(val);
 
     const d1 = document.getElementById('routerFilterDashboard');
@@ -290,7 +327,6 @@ window.onRouterFilterChange = (val) => {
 
 // --- INITIALIZATION ---
 async function initDashboard() {
-    console.log("Initializing Dashboard...");
     vm.initTheme();
 
     let username = localStorage.getItem('wipay_user');
@@ -327,7 +363,6 @@ async function initDashboard() {
     // --- View Change Listener ---
     window.addEventListener('viewChanged', (e) => {
         const viewName = e.detail.viewName;
-        console.log('View Changed:', viewName);
         if (viewName === 'categories') dh.fetchCategoriesList();
         else if (viewName === 'packages') dh.fetchPackagesList();
         else if (viewName === 'vouchers') dh.fetchVouchersList();
@@ -337,6 +372,7 @@ async function initDashboard() {
         else if (viewName === 'myTransactions') dh.fetchMyTransactions();
         else if (viewName === 'routers') dh.fetchRouters();
         else if (viewName === 'downloads') dh.fetchDownloadsList();
+        else if (viewName === 'ads') dh.fetchAds();
         else if (viewName === 'agents') dh.fetchAgentsList();
         else if (viewName === 'dashboard') {
              dh.loadStats();
@@ -377,9 +413,8 @@ async function initDashboard() {
     if (typeof io !== 'undefined') {
         try {
             const socket = io('https://ugpay.tech', { path: '/socket.io' });
-            socket.on('connect', () => console.log('Connected to WebSocket server'));
+            socket.on('connect', () => {});
             socket.on('data_update', (data) => {
-                console.log('Real-time Update:', data.type);
                 dh.loadStats();
                 dh.loadSMSBalance();
                 // Refresh active view logic

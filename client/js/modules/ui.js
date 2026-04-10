@@ -145,14 +145,16 @@ if (typeof document !== 'undefined') {
 }
 
 // --- NEW HELPERS ---
-export function showTableShimmer(tbodyId, colCount) {
+export function showTableShimmer(tbodyId, colCount, mobileHideIndices = []) {
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
     tbody.innerHTML = '';
     for (let i = 0; i < 5; i++) {
         let cols = '';
         for (let j = 0; j < colCount; j++) {
-            cols += '<td><div class="shimmer-line"></div></td>';
+            const isHiddenOnMobile = mobileHideIndices.includes(j);
+            const classes = isHiddenOnMobile ? 'class="mobile-hide"' : '';
+            cols += `<td ${classes}><div class="shimmer-line"></div></td>`;
         }
         tbody.innerHTML += `<tr class="shimmer-row">${cols}</tr>`;
     }

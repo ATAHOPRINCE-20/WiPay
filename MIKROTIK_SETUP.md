@@ -7,150 +7,157 @@ This guide covers everything: getting internet, bridging ports, setting up the H
 ---
 
 ## Phase 1: Basic Internet & Bridging
-*Assumption: Your Internet Provider (ISP) cable is plugged into **ether1** and gives IP automatically.*
+
+_Assumption: Your Internet Provider (ISP) cable is plugged into **ether1** and gives IP automatically._
 
 1.  **Reset Configuration** (Optional but recommended for clean start)
-    -   System -> Reset Configuration -> Check "No Default Configuration" -> Reset.
-    -   *Connect via MAC Address using WinBox after reboot.*
+    - System -> Reset Configuration -> Check "No Default Configuration" -> Reset.
+    - _Connect via MAC Address using WinBox after reboot._
 
 2.  **Create a Bridge** (To combine LAN ports & WiFi)
-    -   Go to **Bridge**.
-    -   Click **+**, Name it `bridge-lan`, Click **OK**.
-    -   Go to **Ports** tab.
-    -   Click **+**, Interface: `ether2`, Bridge: `bridge-lan`. OK.
-    -   Click **+**, Interface: `ether3`, Bridge: `bridge-lan`. OK.
-    -   Click **+**, Interface: `ether4`, Bridge: `bridge-lan`. OK.
-    -   Click **+**, Interface: `wlan1` (Wireless), Bridge: `bridge-lan`. OK.
-    -   *Do NOT add `ether1` (that's for WAN).*
+    - Go to **Bridge**.
+    - Click **+**, Name it `bridge-lan`, Click **OK**.
+    - Go to **Ports** tab.
+    - Click **+**, Interface: `ether2`, Bridge: `bridge-lan`. OK.
+    - Click **+**, Interface: `ether3`, Bridge: `bridge-lan`. OK.
+    - Click **+**, Interface: `ether4`, Bridge: `bridge-lan`. OK.
+    - Click **+**, Interface: `wlan1` (Wireless), Bridge: `bridge-lan`. OK.
+    - _Do NOT add `ether1` (that's for WAN)._
 
 3.  **Get Internet (WAN)**
-    -   Go to **IP** -> **DHCP Client**.
-    -   Click **+**, Interface: `ether1`.
-    -   Ensure "Add Default Route" is **Yes**.
-    -   Click **OK**.
-    -   *Check: You should see a status of "bound" and an IP address.*
+    - Go to **IP** -> **DHCP Client**.
+    - Click **+**, Interface: `ether1`.
+    - Ensure "Add Default Route" is **Yes**.
+    - Click **OK**.
+    - _Check: You should see a status of "bound" and an IP address._
 
 4.  **Setup LAN IP**
-    -   Go to **IP** -> **Addresses**.
-    -   Click **+**.
-    -   Address: `192.168.88.1/24`
-    -   Interface: `bridge-lan`.
-    -   Click **OK**.
+    - Go to **IP** -> **Addresses**.
+    - Click **+**.
+    - Address: `192.168.88.1/24`
+    - Interface: `bridge-lan`.
+    - Click **OK**.
 
 5.  **Setup Firewall / NAT** (Crucial for Internet access)
-    -   Go to **IP** -> **Firewall** -> **NAT** tab.
-    -   Click **+**.
-    -   **Chain**: `srcnat`
-    -   **Out. Interface**: `ether1`
-    -   **Action** (Action tab): `masquerade`
-    -   Click **OK**.
+    - Go to **IP** -> **Firewall** -> **NAT** tab.
+    - Click **+**.
+    - **Chain**: `srcnat`
+    - **Out. Interface**: `ether1`
+    - **Action** (Action tab): `masquerade`
+    - Click **OK**.
 
 6.  **Allow WinBox (Important!)**
-    -   Go to **IP** -> **Firewall** -> **Filter Rules** tab.
-    -   Click **+**.
-    -   **Chain**: `input`
-    -   **Protocol**: `tcp`
-    -   **Dst. Port**: `8291`
-    -   **Action**: `accept`
-    -   Click **OK**. Move this rule to the **top** if there are other rules.
+    - Go to **IP** -> **Firewall** -> **Filter Rules** tab.
+    - Click **+**.
+    - **Chain**: `input`
+    - **Protocol**: `tcp`
+    - **Dst. Port**: `8291`
+    - **Action**: `accept`
+    - Click **OK**. Move this rule to the **top** if there are other rules.
 
 7.  **Setup DNS**
-    -   Go to **IP** -> **DNS**.
-    -   Servers: `8.8.8.8`, `1.1.1.1`
-    -   Check "Allow Remote Requests".
-    -   Click **OK**.
+    - Go to **IP** -> **DNS**.
+    - Servers: `8.8.8.8`, `1.1.1.1`
+    - Check "Allow Remote Requests".
+    - Click **OK**.
 
 ---
 
 ## Phase 2: Hotspot Setup (Handles DHCP Automatically)
+
 Now we make the router asking for login (Captive Portal).
 **Note**: This wizard AUTOMATICALLY sets up the **DHCP Server** for you. You do not need to do it separately.
 
 1.  Go to **IP** -> **Hotspot**.
 2.  Make sure you are on the **Servers** tab (first tab).
 3.  Click the **Hotspot Setup** button (It is typically on the top toolbar, slightly to the left).
-3.  **Interface**: `bridge-lan`. Next.
-4.  **Local Address**: `192.168.88.1/24`. Next.
-5.  **Pool of Network**: `192.168.88.10-192.168.88.254`. Next.
-    -   *This is your DHCP Pool (where users get IPs).*
-6.  **Select Certificate**: `none`. Next.
-7.  **SMTP Server**: `0.0.0.0`. Next.
-8.  **DNS Servers**: `8.8.8.8`. Next.
-9.  **DNS Name**: `wipay.login` (Or leave blank, but a name is better). Next.
-10. **User**: `admin`, **Password**: (leave blank). Next.
-11. **Success!**
+4.  **Interface**: `bridge-lan`. Next.
+5.  **Local Address**: `192.168.88.1/24`. Next.
+6.  **Pool of Network**: `192.168.88.10-192.168.88.254`. Next.
+    - _This is your DHCP Pool (where users get IPs)._
+7.  **Select Certificate**: `none`. Next.
+8.  **SMTP Server**: `0.0.0.0`. Next.
+9.  **DNS Servers**: `8.8.8.8`. Next.
+10. **DNS Name**: `wipay.login` (Or leave blank, but a name is better). Next.
+11. **User**: `admin`, **Password**: (leave blank). Next.
+12. **Success!**
 
-*Verification*: Go to **IP** -> **DHCP Server**. You should see a server named `dhcp1` (or similar) created automatically.
+_Verification_: Go to **IP** -> **DHCP Server**. You should see a server named `dhcp1` (or similar) created automatically.
 
 ---
 
 ## Phase 3: WiPay Integration (Walled Garden)
+
 Allow users to pay before logging in. **Follow this EXACTLY to avoid leaks.**
 
 **Go to "Walled Garden IP List" Tab (2nd Tab)**:
 
 1.  **Rule 1: Allow DNS (Critical for fetching packages)**
-    *   Click **+**.
-    *   **Action**: `accept`
-    *   **Protocol**: `17 (udp)`
-    *   **Dst. Port**: `53`
-    *   **Dst. Address**: `(LEAVE EMPTY)` <--- Important!
-    *   Click **OK**.
+    - Click **+**.
+    - **Action**: `accept`
+    - **Protocol**: `17 (udp)`
+    - **Dst. Port**: `53`
+    - **Dst. Address**: `(LEAVE EMPTY)` <--- Important!
+    - Click **OK**.
 
 2.  **Rule 2: Allow WiPay Server**
-    *   Click **+**.
-    *   **Action**: `accept`
-    *   **Protocol**: `6 (tcp)`
-    *   **Dst. Port**: `443`
-    *   **Dst. Address**: `84.46.253.72`
-    *   *(Make sure Dst. Address List is EMPTY)*.
-    *   Click **OK**.
+    - Click **+**.
+    - **Action**: `accept`
+    - **Protocol**: `6 (tcp)`
+    - **Dst. Port**: `443`
+    - **Dst. Address**: `84.46.253.72`
+    - _(Make sure Dst. Address List is EMPTY)_.
+    - Click **OK**.
 
 **WARNING (The "Free Internet" Leak):**
-*   Never create a rule with `Dst. Port: 443 / 80` and **Empty** Destination Address.
-*   If you do, everyone gets free internet.
-*   Check your list: Only Rule 1 (DNS) should have an empty address.
+
+- Never create a rule with `Dst. Port: 443 / 80` and **Empty** Destination Address.
+- If you do, everyone gets free internet.
+- Check your list: Only Rule 1 (DNS) should have an empty address.
 
 ---
 
 ## Phase 4: Upload Custom Login Page
+
 Replace the default MikroTik page with the WiPay client.
 
 1.  Check `client/js/config.js` on your PC:
     ```javascript
-    const CONFIG = { API_BASE_URL: 'https://ugpay.tech/api' };
+    const CONFIG = { API_BASE_URL: "https://ugpay.tech/api" };
     ```
 2.  In WinBox, go to **Files**.
 3.  Find the `hotspot` folder.
 4.  **Upload** contents of your `client` folder (`login.html`, `css`, `js`, etc.) into that `hotspot` folder.
-    -   *This replaces the default login page.*
+    - _This replaces the default login page._
 
 ---
 
 ## Phase 5: WireGuard (Remote Management)
+
 Connect this router to your VPS so the system can control it.
 
 **Assumption**: You have run `./add_router_vpn.sh routerX` on your VPS and have the unique keys/IP.
 
 1.  Go to **WireGuard**.
 2.  **+ Interface**:
-    -   Name: `wireguard-vps`
-    -   Listen Port: `13231`
-    -   Private Key: `(Paste Private Key from script output)`
+    - Name: `wireguard-vps`
+    - Listen Port: `13231`
+    - Private Key: `(Paste Private Key from script output)`
 3.  **+ Peer**:
-    -   Interface: `wireguard-vps`
-    -   Public Key: `(Paste Server Public Key from script output)`
-    -   Endpoint: `84.46.253.72`
-    -   Endpoint Port: `51820`
-    -   Allowed Address: `10.66.66.0/24`
-    -   Persistent Keepalive: `25`
+    - Interface: `wireguard-vps`
+    - Public Key: `(Paste Server Public Key from script output)`
+    - Endpoint: `84.46.253.72`
+    - Endpoint Port: `51820`
+    - Allowed Address: `10.66.66.0/24`
+    - Persistent Keepalive: `25`
 4.  Go to **IP** -> **Addresses**.
-    -   **+ Add**: Address: `(Paste IP from script output)/32` (e.g., `10.66.66.3/32`)
-    -   Interface: `wireguard-vps`
+    - **+ Add**: Address: `(Paste IP from script output)/32` (e.g., `10.66.66.3/32`)
+    - Interface: `wireguard-vps`
 
 ---
 
 ## Phase 6: Verify
+
 1.  Connect phone to WiFi.
 2.  "Sign in to network" prompt should appear.
 3.  You should see the WiPay login page.
@@ -161,37 +168,51 @@ Connect this router to your VPS so the system can control it.
 ## Phase 7: Critical Security & Best Practices (Do Not Skip)
 
 1.  **Set a Strong Password**
-    -   Go to **System** -> **Users**.
-    -   Double-click `admin`.
-    -   Click **Password**.
-    -   Type a strong password. **Do not leave it blank!**
+    - Go to **System** -> **Users**.
+    - Double-click `admin`.
+    - Click **Password**.
+    - Type a strong password. **Do not leave it blank!**
 
 2.  **Disable Unused Services** (Prevent Hackers)
-    -   Go to **IP** -> **Services**.
-    -   **DISABLE** (Select and click **X**):
-        -   `www` (WebFig - Not needed if using WinBox)
-        -   `www-ssl`
-        -   `telnet` (Very insecure)
-        -   `ftp`
-    -   **ENABLE** (Tick):
-        -   `winbox` (Port 8291) - **CRITICAL: DO NOT DISABLE**
-        -   `ssh` (Port 22) - Good for backup
-        -   `api` (Port 8728) - **ENABLE THIS** if you are using **Mikhmon**.
-    -   *Note: Disabling `www` only disables the Admin Web Panel. Your Hotspot Login Page will still work fine.*
+    - Go to **IP** -> **Services**.
+    - **DISABLE** (Select and click **X**):
+      - `www` (WebFig - Not needed if using WinBox)
+      - `www-ssl`
+      - `telnet` (Very insecure)
+      - `ftp`
+    - **ENABLE** (Tick):
+      - `winbox` (Port 8291) - **CRITICAL: DO NOT DISABLE**
+      - `ssh` (Port 22) - Good for backup
+      - `api` (Port 8728) - **ENABLE THIS** (Required for WiPay voucher syncing).
+    - _Note: Disabling `www` only disables the Admin Web Panel. Your Hotspot Login Page will still work fine._
 
-3.  **Set Correct Time** (Important for Logs)
-    -   Go to **System** -> **Clock**.
-    -   Set your **Time Zone Name** (e.g., `Africa/Kampala`).
-    -   Go to **System** -> **SNTP Client**.
-    -   Check **Enabled**.
-    -   **Primary NTP**: `0.africa.pool.ntp.org` (or `0.asia.pool.ntp.org`)
-    -   **Secondary NTP**: `1.africa.pool.ntp.org`
-    -   **Other Options**: `pool.ntp.org`, `time.google.com`, `162.159.200.1` (Cloudflare).
-    -   Click **Apply**.
+3.  **Create Dedicated API User (WiPay Admin)**
+    - Run these two commands in the Terminal for maximum security:
+
+    ```bash
+    # A. Create a restricted group
+    /user group add name=wipay policy=read,write,api,test,password,sniff,!local,!telnet,!ssh,!ftp,!reboot,!policy,!winbox,!sensitive,!romon
+
+    # B. Create the API user with your project password
+    /user add name=wipay_admin group=wipay password=Atahoprince@2003
+    ```
+
+    - _Why?_ This group protects your router. The server can activate vouchers but CANNOT reboot the router, delete admins, or log in via WinBox.
+
+4.  **Set Correct Time** (Important for Logs)
+    - Go to **System** -> **Clock**.
+    - Set your **Time Zone Name** (e.g., `Africa/Kampala`).
+    - Go to **System** -> **SNTP Client**.
+    - Check **Enabled**.
+    - **Primary NTP**: `0.africa.pool.ntp.org` (or `0.asia.pool.ntp.org`)
+    - **Secondary NTP**: `1.africa.pool.ntp.org`
+    - **Other Options**: `pool.ntp.org`, `time.google.com`, `162.159.200.1` (Cloudflare).
+    - Click **Apply**.
 
 ---
 
 ## Phase 8: Enabling Free Trial
+
 Allow users to get free internet for a short time (e.g., 5 minutes).
 
 1.  Go to **IP** -> **Hotspot** -> **Server Profiles** tab.
@@ -201,11 +222,12 @@ Allow users to get free internet for a short time (e.g., 5 minutes).
 5.  Set **Trial Uptime Limit**: `00:05:00` (5 Minutes).
 6.  Set **Trial Uptime Reset**: `1d 00:00:00` (Can try again after 1 day).
 7.  Click **OK**.
-    -   *Now the "Free Trial" button on your login page will work.*
+    - _Now the "Free Trial" button on your login page will work._
 
 ---
 
 ## Phase 9: Login Methods (The Checkboxes)
+
 You asked about "HTTP CHAP", "HTTPS", etc. Here is what you should check in **Server Profiles -> Login**.
 
 1.  **HTTP CHAP** (✅ Check this): This is the standard secure login method.
@@ -221,6 +243,7 @@ You asked about "HTTP CHAP", "HTTPS", etc. Here is what you should check in **Se
 ## Phase 10: Mikhmon Setup (The "Trick")
 
 ### Part 1: Create the App (On VPS)
+
 Before connecting the router, create the client's isolated Mikhmon server.
 
 1.  **Login to VPS** via SSH.
@@ -230,48 +253,143 @@ Before connecting the router, create the client's isolated Mikhmon server.
     # Example: ./create_mikhmon_client.sh shop1
     ```
 3.  **Result**:
-    -   You get a focused link: `https://ugpay.tech/shop1/`
-    -   Default Login: `mikhmon` / `1234`
-    -   *Give this link to your client.*
+    - You get a focused link: `https://ugpay.tech/shop1/`
+    - Default Login: `mikhmon` / `1234`
+    - _Give this link to your client._
 
 ### Part 2: Connect the Router (Inside Mikhmon)
+
 Now log into that new link (`/shop1/`) and connect the router using the **VPN Tunnel**.
 
 1.  **IP Address**: Use the **VPN IP** assigned to this router (e.g., `10.66.66.2`).
-    *   *Why?* The VPS cannot see your "Public IP" easily, but it can ALWAYS see the VPN IP. It acts like a direct cable.
+    - _Why?_ The VPS cannot see your "Public IP" easily, but it can ALWAYS see the VPN IP. It acts like a direct cable.
 2.  **Port**: `8728` (Default API port you enabled in Phase 7).
 3.  **Username/Password**: The router's admin login.
 4.  **Hotspot Name**: `wipay` (or whatever you named the DNS Name).
 5.  **DNS Name**: `wipay.login`.
 
 **For Future Routers:**
--   Router 1: Connect to `10.66.66.2`
--   Router 2: Connect to `10.66.66.3`
--   Router 3: Connect to `10.66.66.4`
-*(Always use the unique VPN IP generated by the script).*
+
+- Router 1: Connect to `10.66.66.2`
+- Router 2: Connect to `10.66.66.3`
+- Router 3: Connect to `10.66.66.4`
+  _(Always use the unique VPN IP generated by the script)._
+
+---
+
+## Phase 11: Calendar Validity Enforcement
+
+WiPay now supports calendar-based validity (e.g., if a user buys a 24h voucher at 10 AM, it expires at 10 AM the next day, regardless of pause/disconnect).
+
+1.  **On-Login Script**
+    - Go to **IP** -> **Hotspot** -> **User Profiles**.
+    - Double-click `default`.
+    - Go to **Scripts** tab.
+    - In **On Login**, paste this:
+
+    ```bash
+    :local user $user;
+    :local totalValidity 0s;
+
+    # Tier 1: Try to get limit-uptime (Direct Mikhmon/Manual limit)
+    :set totalValidity [/ip hotspot user get [find name=$user] limit-uptime];
+
+    # Tier 2: Try to get from Profile Name (If limit is 0)
+    :if ($totalValidity = 0s) do={
+        :local profile [/ip hotspot user get [find name=$user] profile];
+        :if ($profile ~ "1h") do={ :set totalValidity 1h }
+        :if ($profile ~ "30d") do={ :set totalValidity 30d }
+    }
+
+    # Tier 3: Try to get from Comment (The "Truth" from WiPay/CSV)
+    :if ($totalValidity = 0s) do={
+        :local comment [/ip hotspot user get [find name=$user] comment];
+        :if ([:find $comment "validity:"] != -1) do={
+            :set totalValidity [:pick $comment ([:find $comment "validity:"] + 9) [:len $comment]];
+        }
+    }
+
+    # If validity was found, set the Auto-Off timer
+    :if ($totalValidity > 0s) do={
+        :if ([/system scheduler find name=$user] = "") do={
+            /system scheduler add name=$user interval=$totalValidity on-event="/ip hotspot active remove [find user=\"$user\"]; /ip hotspot user disable [find name=\"$user\"]; /system scheduler remove [find name=\"$user\"]"
+        }
+    }
+    ```
+
+2.  **One-Time Migration (Logout)**
+    - If you already had users connected, run this in the terminal to force the new script to calculate their time:
+
+    ```bash
+    /ip hotspot active remove [find]
+    ```
+
+3.  **Daily Cleanup Script**
+    - Go to **System** -> **Scripts**.
+    - Create a new script named `cleanup_expired`.
+    - **Source**:
+
+    ```bash
+    /ip hotspot user {
+        :foreach i in=[find where disabled=yes] do={
+            remove $i
+        }
+    }
+    ```
+
+    - Go to **System** -> **Scheduler**.
+    - Add a task to run `cleanup_expired` every 24 hours.
+
+## Phase 12: Anti-Sharing (TTL) - _Highly Recommended_
+
+This "Mangle" rule prevents users from "sharing" their internet via phone tethering or pocket routers. **Note**: We must scope this to the `bridge-lan` network so it doesn't break your VPN connection.
+
+1. Go to **IP** -> **Firewall** -> **Mangle** tab.
+2. Click **+** to add a new rule:
+   - **Chain**: `postrouting`
+   - **Src. Address**: `192.168.88.0/24` (Your Hotspot network)
+   - **Out. Interface**: `ether1` (Your WAN/Internet port).
+   - **Action**: `change TTL`
+   - **New TTL**: `set:1`
+3. Click **OK**.
+4. Click **+** again for a second rule:
+   - **Chain**: `prerouting`
+   - **In. Interface**: `bridge-lan`
+   - **Action**: `change TTL`
+   - **New TTL**: `set:1`
+5. Click **OK**.
+
+> [!IMPORTANT]
+> If you don't set the **Src. Address** in Rule 1, the router will try to set the VPN's "life" to 1, and the connection will die before it reaches the VPS.
 
 ---
 
 ## Troubleshooting & Critical Rules
 
 ### 1. The "Golden Rule" for New Routers
+
 When you add Router 2, Router 3, etc., **ALWAYS** use:
--   **Endpoint Address**: `84.46.253.72`
--   **Endpoint Port**: `51820` (Never change this on the Peer side).
--   **Listen Port**: `13231` (Find locally).
+
+- **Endpoint Address**: `84.46.253.72`
+- **Endpoint Port**: `51820` (Never change this on the Peer side).
+- **Listen Port**: `13231` (Find locally).
 
 ### 2. Clock Failed / "Waiting"?
+
 If **System -> SNTP Client** stays on "Waiting", your ISP is blocking the Time Port (123).
--   **FIX**: Go to **System -> Clock**.
--   **Manually type** the correct Time and Date.
--   **Why?** WireGuard **WILL NOT CONNECT** if the date is wrong (e.g., 1970). You *must* set it manually if auto-update fails.
+
+- **FIX**: Go to **System -> Clock**.
+- **Manually type** the correct Time and Date.
+- **Why?** WireGuard **WILL NOT CONNECT** if the date is wrong (e.g., 1970). You _must_ set it manually if auto-update fails.
 
 ### 3. Locked Out / Blocked?
+
 If you see "Connection Refused" or can't login:
--   **Did you disable `www`?** Use **WinBox** app, not the Browser.
--   **Did you set a Firewall Rule wrong?**
-    1.  Open WinBox.
-    2.  Instead of IP (192.168.88.1), look at the **Neighbors** tab.
-    3.  Click the **MAC Address** (e.g., `D4:CA:6D:...`).
-    4.  Click **Connect**.
-    -   *MAC Connection bypasses IP Firewall rules.*
+
+- **Did you disable `www`?** Use **WinBox** app, not the Browser.
+- **Did you set a Firewall Rule wrong?**
+  1.  Open WinBox.
+  2.  Instead of IP (192.168.88.1), look at the **Neighbors** tab.
+  3.  Click the **MAC Address** (e.g., `D4:CA:6D:...`).
+  4.  Click **Connect**.
+  - _MAC Connection bypasses IP Firewall rules._
