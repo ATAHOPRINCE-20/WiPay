@@ -15,7 +15,7 @@ const upload = multer({ dest: 'uploads/' });
 const WITHDRAWAL_FEE = Number(process.env.WITHDRAW_FEE);
 
 // Middleware applied to all routes in this file
-router.use('/admin', verifyAdmin);
+router.use('/admin', authenticateToken, verifyAdmin);
 
 // --- Resources (Downloads) ---
 router.get('/admin/resources', async (req, res) => {

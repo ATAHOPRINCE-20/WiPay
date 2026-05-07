@@ -176,7 +176,11 @@ async function runPendingMigrations() {
     console.error("Migration Error (tenant_token population):", err.message);
   }
 
-  // 16. Validity in Vouchers
+  // 16. Last Active Tracker
+  await migrate("last_active_at in admins", "ALTER TABLE admins ADD COLUMN last_active_at TIMESTAMP NULL DEFAULT NULL");
+  await migrate("last_active_at in agents", "ALTER TABLE agents ADD COLUMN last_active_at TIMESTAMP NULL DEFAULT NULL");
+
+  // 17. Validity in Vouchers
   await migrate("validity in vouchers", "ALTER TABLE vouchers ADD COLUMN validity VARCHAR(50) DEFAULT NULL AFTER code");
 
   // 16. Performance Indexes (critical for query speed)

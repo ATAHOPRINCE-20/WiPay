@@ -17,10 +17,10 @@ function authenticateToken(req, res, next) {
         if (err) return res.sendStatus(403); // Forbidden
         req.user = user;
 
-        // Fire-and-forget update of last_activity
-        // We don't await this to avoid slowing down valid requests
-        db.query('UPDATE admins SET last_active_at = NOW() WHERE id = ?', [user.id])
-            .catch(err => console.error('Error updating last_active:', err));
+        // Fire-and-forget update of last_active_at
+        const table = (user.role === 'agent') ? 'agents' : 'admins';
+        db.query(`UPDATE ${table} SET last_active_at = NOW() WHERE id = ?`, [user.id])
+            .catch(err => console.error(`Error updating last_active for ${user.role}:`, err.message));
 
         next();
     });

@@ -64,8 +64,8 @@ router.post('/login', async (req, res) => {
         // Set HttpOnly/Secure Cookie
         res.cookie('token', token, {
             httpOnly: true,
-            secure: true, // Required for security on ugpay.tech
-            sameSite: 'strict',
+            secure: false, // Temporary fix for redirect loop
+            sameSite: 'lax',
             maxAge: 24 * 60 * 60 * 1000 
         });
 

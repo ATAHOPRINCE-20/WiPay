@@ -546,7 +546,7 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
 });
 
 // Initiate Withdrawal (OTP)
-router.post('/admin/withdraw/initiate', verifyAdmin, requireIdempotency, async (req, res) => {
+router.post('/admin/withdraw/initiate', authenticateToken, verifyAdmin, requireIdempotency, async (req, res) => {
     const { amount, phone_number } = req.body;
     if (!amount || !phone_number) return res.status(400).json({ error: 'Required fields missing' });
 
@@ -589,7 +589,7 @@ router.post('/admin/withdraw/initiate', verifyAdmin, requireIdempotency, async (
 });
 
 // Admin Withdraw (Confirm)
-router.post('/admin/withdraw', verifyAdmin, requireIdempotency, async (req, res) => {
+router.post('/admin/withdraw', authenticateToken, verifyAdmin, requireIdempotency, async (req, res) => {
     const { amount, phone_number, description, otp } = req.body;
 
     if (!amount || !phone_number || !otp) return res.status(400).json({ error: 'Required fields missing including OTP' });
@@ -685,7 +685,7 @@ router.post('/admin/withdraw', verifyAdmin, requireIdempotency, async (req, res)
     }
 });
 
-router.get('/admin/my-transactions', verifyAdmin, async (req, res) => {
+router.get('/admin/my-transactions', authenticateToken, verifyAdmin, async (req, res) => {
     try {
         const query = `
             SELECT 
