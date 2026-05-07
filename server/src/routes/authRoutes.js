@@ -64,7 +64,7 @@ router.post('/login', async (req, res) => {
         // Set HttpOnly/Secure Cookie
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false, // Temporary fix for redirect loop
+            secure: req.secure || req.headers['x-forwarded-proto'] === 'https', 
             sameSite: 'lax',
             maxAge: 24 * 60 * 60 * 1000 
         });

@@ -226,9 +226,42 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
 
-        /* Skeleton Loading */
-        .skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 200% 100%; animation: loading 1.5s infinite; }
-        @keyframes loading { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        .pkg-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        
+        .pkg-card {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .pkg-card:active { transform: scale(0.98); background: rgba(255,255,255,0.05); }
+        
+        .pkg-meta h3 { font-size: 1.1rem; font-weight: 800; margin-bottom: 4px; color: var(--primary); }
+        .pkg-meta .price { font-size: 0.85rem; color: var(--success); font-weight: 700; display: block; }
+        .pkg-meta .stock { font-size: 0.75rem; color: var(--muted); margin-top: 4px; display: block; }
+
+        .btn-sell-mini {
+            background: var(--success-grad);
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; border: none; font-size: 1.1rem;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        /* Hide the old big button */
+        .btn-sell { display: none; }
     </style>
     <script>
         (function() {
@@ -268,9 +301,11 @@
         <div class="stock-count" id="stockCount">0</div>
     </div>
 
-    <button class="btn-sell" onclick="handleSellClick()">
-        <i class="fas fa-bolt"></i> SELL VOUCHER
-    </button>
+    <div class="section-header">Available Stock</div>
+    <div id="pkgList" class="pkg-grid">
+        <!-- Packages injected here -->
+        <div style="text-align: center; color: var(--muted); padding: 20px;">Checking inventory...</div>
+    </div>
 
     <div class="section-header">Performance</div>
     <div class="stat-grid">
@@ -421,6 +456,11 @@
                 document.getElementById('statMonthly').innerText = Number(analytics.monthly || 0).toLocaleString();
                 document.getElementById('statYearly').innerText = Number(analytics.yearly || 0).toLocaleString();
 
+                // Fetch Packages
+                const pkgRes = await fetchAuth('/api/agent/packages');
+                const packages = await pkgRes.json();
+                renderPackages(packages);
+
                 // Fetch Sales
                 const salesRes = await fetchAuth('/api/agent/sales');
                 allSales = await salesRes.json();
@@ -431,6 +471,37 @@
             }
         }
         window.updateData = updateData;
+
+        function renderPackages(packages) {
+            const list = document.getElementById('pkgList');
+            list.innerHTML = '';
+            
+            if (packages.length === 0) {
+                list.innerHTML = `
+                    <div style="text-align: center; color: var(--muted); padding: 20px;">
+                        <i class="fas fa-box-open" style="font-size: 2rem; margin-bottom: 10px; display: block; opacity: 0.3;"></i>
+                        No vouchers assigned to you
+                    </div>`;
+                return;
+            }
+
+            packages.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'pkg-card';
+                div.onclick = () => handleSellClick(p.id, p.name);
+                div.innerHTML = `
+                    <div class="pkg-meta">
+                        <h3>${p.name}</h3>
+                        <span class="price">${Number(p.price).toLocaleString()} UGX</span>
+                        <span class="stock">${p.stock} units in pocket</span>
+                    </div>
+                    <button class="btn-sell-mini">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                `;
+                list.appendChild(div);
+            });
+        }
 
         function renderSales() {
             const list = document.getElementById('salesList');
@@ -514,7 +585,7 @@
 
         window.confirmLogout = async () => {
             try {
-                await fetchAuth('/api/auth/logout', { method: 'POST' });
+                await fetchAuth('/api/logout', { method: 'POST' });
             } catch (e) {}
             localStorage.clear();
             window.location.href = 'login_dashboard.html';
@@ -524,22 +595,21 @@
             document.getElementById(id).classList.remove('active');
         };
 
-        window.handleSellClick = () => {
-            showConfirm('Sell Voucher', 'Are you sure you want to sell 1 voucher now?', () => {
-                sellVoucher();
+        window.handleSellClick = (id, name) => {
+            showConfirm('Sell Voucher', `Are you sure you want to sell 1x ${name} now?`, () => {
+                sellVoucher(id);
             });
         };
 
-        async function sellVoucher() {
-            const btn = document.querySelector('.btn-sell');
-            const originalHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SELLING...';
-            btn.disabled = true;
-
+        async function sellVoucher(package_id) {
+            // Find the specific card to show loading state if possible, or just use general overlay
             try {
                 const res = await fetchAuth('/api/agent/sell-voucher', {
                     method: 'POST',
-                    body: JSON.stringify({ phone_number: 'Physical Sale' })
+                    body: JSON.stringify({ 
+                        package_id: package_id,
+                        phone_number: 'Physical Sale' 
+                    })
                 });
                 const data = await res.json();
                 
@@ -555,10 +625,6 @@
                 }
             } catch (e) { 
                 showAlert("Server error. Please check your connection."); 
-            }
-            finally {
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
             }
         }
 

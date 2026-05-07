@@ -183,6 +183,10 @@ async function runPendingMigrations() {
   // 17. Validity in Vouchers
   await migrate("validity in vouchers", "ALTER TABLE vouchers ADD COLUMN validity VARCHAR(50) DEFAULT NULL AFTER code");
 
+  // 18. Profile Column (Explicit Tracking)
+  await migrate("profile in packages", "ALTER TABLE packages ADD COLUMN profile VARCHAR(50) DEFAULT 'default' AFTER validity_hours");
+  await migrate("profile in vouchers", "ALTER TABLE vouchers ADD COLUMN profile VARCHAR(50) DEFAULT NULL AFTER validity");
+
   // 16. Performance Indexes (critical for query speed)
   const indexes = [
     // transactions - most queried table

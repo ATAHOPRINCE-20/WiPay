@@ -49,12 +49,12 @@ async function addHotspotUser({ name, password, router_id, validity_hours, valid
             if (!isNaN(v) && v !== '') {
                 v = v + 'h';
             }
-            durationMarker = `wipay:${v}`;
+            durationMarker = `validity:${v}`;
         } else if (validity_hours && validity_hours > 0) {
             if (validity_hours % 24 === 0) {
-                durationMarker = `wipay:${validity_hours / 24}d`;
+                durationMarker = `validity:${validity_hours / 24}d`;
             } else {
-                durationMarker = `wipay:${validity_hours}h`;
+                durationMarker = `validity:${validity_hours}h`;
             }
         }
 
@@ -62,7 +62,7 @@ async function addHotspotUser({ name, password, router_id, validity_hours, valid
             name,
             password,
             profile,
-            comment: durationMarker  // e.g. "wipay:1d" — on-login script sets real expiry at login time
+            comment: durationMarker  // e.g. "validity:1d" — on-login script sets real expiry at login time
         };
 
         // Check if user exists using node-routeros standard print with query
@@ -70,12 +70,21 @@ async function addHotspotUser({ name, password, router_id, validity_hours, valid
 
         if (users.length > 0) {
             console.log(`[RouterOS] User ${name} already exists. Updating...`);
-            await client.write([
+            const updatePayload = [
                 '/ip/hotspot/user/set',
-                `=.id=${users[0]['.id'] || users[0].id}`, // ROS API usually uses .id
-                `=comment=${payload.comment}`,
-                `=profile=${payload.profile}`
-            ]);
+                `=.id=${users[0]['.id'] || users[0].id}`,
+                `=comment=${payload.comment}`
+            ];
+
+            // If the profile is 'default' and the existing user has a specific profile, keep the existing one.
+            // This prevents overwriting 'daily', '1h', etc. with 'default' during purchase.
+            if (profile === 'default' && users[0].profile && users[0].profile !== 'default') {
+                console.log(`[RouterOS] Preserving existing profile: ${users[0].profile} for ${name}`);
+            } else {
+                updatePayload.push(`=profile=${payload.profile}`);
+            }
+
+            await client.write(updatePayload);
             return users[0];
         }
 

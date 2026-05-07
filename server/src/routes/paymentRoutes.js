@@ -21,7 +21,7 @@ const WITHDRAWAL_FEE = Number(process.env.WITHDRAW_FEE);
 
 async function getAdminBalance(adminId) {
     try {
-        const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE status = 'success' AND admin_id = ?", [adminId]);
+        const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE status = 'success' AND admin_id = ? AND payment_method != 'cash_agent' AND payment_method != 'manual'", [adminId]);
         const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount + COALESCE(fee, 0)), 0) as total_withdrawn FROM withdrawals WHERE (status='success' OR status='pending') AND admin_id = ?", [adminId]);
         const totalRev = Number(transStats[0].total_revenue);
         const totalWd = Number(withdrawStats[0].total_withdrawn);
@@ -230,9 +230,10 @@ router.post('/webhook', idempotencyMiddleware, async (req, res) => {
             }
             const voucher = vouchers[0];
             const validity_string = voucher.validity || null;
+            const profile = voucher.profile || pkg.profile || 'default';
 
             // 5. Check SMS Balance
-            const [balRows] = await connection.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [pkg.admin_id]);
+            const [balRows] = await connection.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL) AND type != "subscription"', [pkg.admin_id]);
             const balance = Number(balRows[0].balance || 0);
 
             // 6. Update Voucher & Transaction
@@ -265,7 +266,8 @@ router.post('/webhook', idempotencyMiddleware, async (req, res) => {
                     password: voucher.code,
                     router_id: pkg.router_id,
                     validity_hours: pkg.validity_hours,
-                    validity_string: validity_string
+                    validity_string: validity_string,
+                    profile: profile
                 });
             } catch (routerErr) {
                 console.error(`[WEBHOOK] MikroTik Sync Error (Ref: ${reference}):`, routerErr.message);
@@ -410,7 +412,7 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
                 const SMS_COST = 35;
 
                 // Check SMS Balance
-                const [balRows] = await db.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [pkg.admin_id]);
+                const [balRows] = await db.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL) AND type != "subscription"', [pkg.admin_id]);
                 const balance = Number(balRows[0].balance || 0);
 
                 if (balance >= SMS_COST) {
@@ -440,7 +442,8 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
                                 password: voucher.code,
                                 router_id: tx.router_id,
                                 validity_hours: pkg.validity_hours,
-                                validity_string: voucher.validity
+                                validity_string: voucher.validity,
+                                profile: voucher.profile || pkg.profile || 'default'
                             });
                         } catch (routerErr) {
                             console.error(`[POLL] MikroTik Sync Error (Ref: ${transaction_ref}):`, routerErr.message);
@@ -498,7 +501,8 @@ router.post('/check-payment-status', idempotencyMiddleware, async (req, res) => 
                                 password: voucher.code,
                                 router_id: tx.router_id,
                                 validity_hours: pkg.validity_hours,
-                                validity_string: voucher.validity
+                                validity_string: voucher.validity,
+                                profile: voucher.profile || pkg.profile || 'default'
                             });
                         } catch (routerErr) {
                             console.error(`[POLL] MikroTik Sync Error (Low SMS, Ref: ${transaction_ref}):`, routerErr.message);
@@ -594,6 +598,7 @@ router.post('/admin/withdraw', authenticateToken, verifyAdmin, requireIdempotenc
 
     if (!amount || !phone_number || !otp) return res.status(400).json({ error: 'Required fields missing including OTP' });
 
+    let reference;
     try {
         // 1. Verify OTP
         const [rows] = await db.query('SELECT withdrawal_otp, withdrawal_otp_expiry FROM admins WHERE id = ?', [req.user.id]);
@@ -626,7 +631,7 @@ router.post('/admin/withdraw', authenticateToken, verifyAdmin, requireIdempotenc
         }
 
         // 3. Create Pending Record (LOCK FUNDS LOGICALLY)
-        const reference = `W-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        reference = `W-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
         await db.query(
             'INSERT INTO withdrawals (phone_number, amount, fee, reference, description, admin_id, status) VALUES (?, ?, ?, ?, ?, ?, "pending")',
             [formattedPhone, amount, WITHDRAWAL_FEE, reference, description, req.user.id]
@@ -681,6 +686,13 @@ router.post('/admin/withdraw', authenticateToken, verifyAdmin, requireIdempotenc
         }
     } catch (err) {
         console.error('Withdraw Error:', err);
+        if (reference) {
+            try {
+                await db.query('UPDATE withdrawals SET status = "failed" WHERE reference = ?', [reference]);
+            } catch (dbErr) {
+                console.error('Failed to update withdrawal status to failed:', dbErr);
+            }
+        }
         res.status(500).json({ error: 'Server Error' });
     }
 });
@@ -692,7 +704,7 @@ router.get('/admin/my-transactions', authenticateToken, verifyAdmin, async (req,
                 created_at, 
                 'Withdrawal' as type, 
                 amount, 
-                'success' as status, 
+                status, 
                 reference, 
                 CONCAT(description, ' (Fee: 2000)') as description 
             FROM withdrawals 

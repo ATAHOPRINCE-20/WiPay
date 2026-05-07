@@ -9,12 +9,24 @@ if (!JWT_SECRET) {
 }
 
 function authenticateToken(req, res, next) {
-    const token = req.cookies.token || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
+    const cookieToken = req.cookies.token;
+    const authHeader = req.headers['authorization'];
+    const headerToken = authHeader && authHeader.split(' ')[1];
+    
+    const token = cookieToken || headerToken;
 
-    if (!token) return res.sendStatus(401); // Unauthorized
+    // console.log(`[AUTH DEBUG] Request: ${req.method} ${req.originalUrl || req.url}`);
+
+    if (!token) {
+        // console.warn(`[AUTH DEBUG] No token found for ${req.url}. Returning 401.`);
+        return res.sendStatus(401);
+    }
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403); // Forbidden
+        if (err) {
+            console.error(`[AUTH DEBUG] JWT Verify Error for ${req.url}:`, err.message);
+            return res.sendStatus(403);
+        }
         req.user = user;
 
         // Fire-and-forget update of last_active_at

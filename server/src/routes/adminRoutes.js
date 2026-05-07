@@ -226,7 +226,7 @@ router.put('/admin/routers/:id', async (req, res) => {
 
 // --- Packages ---
 router.post('/admin/packages', async (req, res) => {
-    const { name, price, validity_hours, category_id, data_limit_mb, router_id } = req.body;
+    const { name, price, validity_hours, category_id, data_limit_mb, router_id, profile } = req.body;
 
     if (!name || !price || !category_id) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -234,12 +234,13 @@ router.post('/admin/packages', async (req, res) => {
 
     try {
         await db.query(`
-            INSERT INTO packages (category_id, name, price, validity_hours, data_limit_mb, created_at, admin_id, router_id)
-            VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
-        `, [category_id, name, price, validity_hours || 0, data_limit_mb || 0, req.user.id, router_id || null]);
+            INSERT INTO packages (category_id, name, price, validity_hours, profile, data_limit_mb, created_at, admin_id, router_id)
+            VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?)
+        `, [category_id, name, price, validity_hours || 0, profile || 'default', data_limit_mb || 0, req.user.id, router_id || null]);
         req.io.emit('data_update', { type: 'packages' });
         res.json({ message: 'Package created successfully' });
     } catch (err) {
+        console.error('Create Package Error:', err);
         res.status(500).json({ error: 'Failed to create package' });
     }
 });
@@ -265,8 +266,9 @@ router.get('/admin/packages', async (req, res) => {
     try {
         const router_id = req.query.router_id;
         let query = `
-            SELECT p.id, p.name, p.price, p.validity_hours, p.data_limit_mb, p.is_active, p.created_at, c.name as category_name, p.router_id,
-            (SELECT COUNT(*) FROM vouchers v WHERE v.package_id = p.id AND v.is_used = FALSE) as vouchers_count
+            SELECT p.id, p.name, p.price, p.validity_hours, p.profile, p.data_limit_mb, p.is_active, p.created_at, c.name as category_name, p.router_id,
+            (SELECT COUNT(*) FROM vouchers v WHERE v.package_id = p.id AND v.is_used = FALSE) as vouchers_count,
+            (SELECT COUNT(*) FROM vouchers v WHERE v.package_id = p.id AND v.is_used = FALSE AND v.agent_id IS NULL) as unassigned_vouchers_count
             FROM packages p 
             LEFT JOIN categories c ON p.category_id = c.id 
             WHERE p.admin_id = ?
@@ -291,7 +293,7 @@ router.get('/admin/packages', async (req, res) => {
 
 
 router.put('/admin/packages/:id', async (req, res) => {
-    const { name, price, validity_hours, data_limit_mb, category_id } = req.body;
+    const { name, price, validity_hours, data_limit_mb, category_id, profile } = req.body;
 
     if (!name || !price || !category_id) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -300,9 +302,9 @@ router.put('/admin/packages/:id', async (req, res) => {
     try {
         const [result] = await db.query(`
             UPDATE packages 
-            SET name = ?, price = ?, validity_hours = ?, data_limit_mb = ?, category_id = ?
+            SET name = ?, price = ?, validity_hours = ?, profile = ?, data_limit_mb = ?, category_id = ?
             WHERE id = ? AND admin_id = ?
-        `, [name, price, validity_hours || 0, data_limit_mb || 0, category_id, req.params.id, req.user.id]);
+        `, [name, price, validity_hours || 0, profile || 'default', data_limit_mb || 0, category_id, req.params.id, req.user.id]);
 
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Package not found' });
 
@@ -369,34 +371,36 @@ router.post('/admin/vouchers/import', upload.single('file'), async (req, res) =>
     // OR: Vouchers created under specific router view get that router_id.
     // Let's lookup package first.
     let packageRouterId = null;
+    let packageProfile = 'default';
     try {
-        const [pkgRows] = await db.query('SELECT router_id FROM packages WHERE id = ?', [package_id]);
-        if (pkgRows.length > 0) packageRouterId = pkgRows[0].router_id;
-    } catch (e) { console.error("Error looking up package router:", e); }
+        const [pkgRows] = await db.query('SELECT router_id, profile FROM packages WHERE id = ?', [package_id]);
+        if (pkgRows.length > 0) {
+            packageRouterId = pkgRows[0].router_id;
+            packageProfile = pkgRows[0].profile || 'default';
+        }
+    } catch (e) { console.error("Error looking up package details:", e); }
 
     // Final Router ID for vouchers: Package's ID takes precedence (strict), or fallback to passed ID?
-    // If Package is Specific, vouchers MUST be specific to that router.
-    // If Package is Global (NULL), vouchers CAN be specific (if sold from specific router view) or Global.
-    // Use packageRouterId if exists, otherwise use req.body.router_id
     const finalRouterId = packageRouterId || router_id || null;
 
     const processBatch = async (batch) => {
         if (batch.length === 0) return;
 
-        // Adaptive placeholder: code, comment, package_ref, validity
+        // Adaptive placeholder: code, comment, package_ref, validity, profile
         const strictValues = [];
         batch.forEach(row => {
             const code = row.Username || row.code || (Object.values(row)[0]); // Map Username or first column as code
             const comment = row.Comment || row.comment || null;
             const pkgRef = row.package_ref || null;
             const validity = row['Time Limit'] || row.validity || null;
-            strictValues.push(package_id, code, comment, pkgRef, req.user.id, finalRouterId, validity);
+            const profile = row.Profile || row.profile || packageProfile; // Use CSV profile or inherit from package
+            strictValues.push(package_id, code, comment, pkgRef, req.user.id, finalRouterId, validity, profile);
         });
 
-        // We added router_id and validity to the insert columns
-        const strictPlaceholder = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+        // We added router_id, validity, and profile to the insert columns
+        const strictPlaceholder = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
 
-        const [result] = await db.query(`INSERT IGNORE INTO vouchers (package_id, code, comment, package_ref, admin_id, router_id, validity) VALUES ${strictPlaceholder}`, strictValues);
+        const [result] = await db.query(`INSERT IGNORE INTO vouchers (package_id, code, comment, package_ref, admin_id, router_id, validity, profile) VALUES ${strictPlaceholder}`, strictValues);
         totalInserted += result.affectedRows;
     };
 
@@ -442,10 +446,12 @@ router.get('/admin/vouchers', async (req, res) => {
         const router_id = req.query.router_id;
 
         let query = `
-            SELECT v.id, v.code, v.comment, v.package_ref, v.is_used, p.name as package_name, v.created_at, v.router_id
+            SELECT v.id, v.code, v.profile, v.comment, v.package_ref, v.is_used, p.name as package_name, v.created_at, v.router_id
             FROM vouchers v
             JOIN packages p ON v.package_id = p.id
+            JOIN admins a ON v.admin_id = a.id
             WHERE v.is_used = FALSE AND v.admin_id = ?
+            AND (a.billing_type != 'subscription' OR a.subscription_expiry >= NOW() OR v.agent_id IS NULL)
         `;
         let params = [req.user.id];
 
@@ -668,7 +674,8 @@ router.post('/admin/sell-voucher', async (req, res) => {
                 name: voucher.code,
                 password: voucher.code,
                 router_id: pkg.router_id,
-                validity_hours: pkg.validity_hours
+                validity_hours: pkg.validity_hours,
+                profile: voucher.profile || pkg.profile || 'default'
             });
         } catch (routerErr) {
             console.error(`[SellVoucher] MikroTik Sync Error:`, routerErr.message);
@@ -834,7 +841,7 @@ router.get('/admin/stats', async (req, res) => {
         const adminId = req.user.id;
 
         // 1. Finance (Filtered vs Global) - EXCLUDE AGENT SALES (cash_agent)
-        let financeWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual' AND payment_method != 'cash_agent'";
+        let financeWhere = "WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual' AND (payment_method != 'cash_agent' OR is_settled = 1)";
         const financeParams = [adminId];
 
         if (router_id) {
@@ -911,7 +918,7 @@ router.get('/admin/stats', async (req, res) => {
             db.query(`SELECT count(*) as count FROM transactions ${txCountsWhere}`, txCountsParams),
             db.query(`SELECT count(*) as count FROM vouchers ${voucherWhere}`, voucherParams),
             db.query(`SELECT count(*) as count FROM transactions ${payCountsWhere}`, payCountsParams),
-            db.query('SELECT subscription_expiry FROM admins WHERE id = ?', [adminId])
+            db.query('SELECT subscription_expiry, billing_type FROM admins WHERE id = ?', [adminId])
         ]);
 
         const globalRevenue = Number(globalRevRows[0].rev);
@@ -924,7 +931,9 @@ router.get('/admin/stats', async (req, res) => {
         let netBalance = totalBalance - WITHDRAWAL_FEE;
         if (netBalance < 0) netBalance = 0;
 
-        const expiryDate = (adminInfo && adminInfo.length > 0) ? adminInfo[0].subscription_expiry : null;
+        const adminData = (adminInfo && adminInfo.length > 0) ? adminInfo[0] : {};
+        const expiryDate = adminData.subscription_expiry;
+        const billingType = adminData.billing_type;
 
         res.json({
             finance: {
@@ -942,7 +951,8 @@ router.get('/admin/stats', async (req, res) => {
                 payments_count: paymentCount[0].count
             },
             subscription: {
-                expiry: expiryDate
+                expiry: expiryDate,
+                billing_type: billingType
             }
         });
     } catch (err) {
@@ -951,17 +961,7 @@ router.get('/admin/stats', async (req, res) => {
     }
 });
 
-// SMS Balance (Mock or Real)
-router.get('/admin/sms-balance', async (req, res) => {
-    try {
-        // Retrieve balance from Relworx or mocked
-        // For now, return 0 or fetch from admins table if column exists.
-        // Returning 0 to prevent crash. User can request full implementation later.
-        res.json({ balance: 0 });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch SMS balance' });
-    }
-});
+
 
 // SMS Logs
 router.get('/admin/sms-logs', async (req, res) => {
@@ -983,7 +983,7 @@ router.post('/admin/renew-subscription', async (req, res) => {
     if (!months || months < 1) return res.status(400).json({ error: 'Invalid duration' });
 
     // Enforce Pricing Server-Side
-    const MONTHLY_FEE = 20000;
+    const MONTHLY_FEE = 25000;
     const amount = months * MONTHLY_FEE;
 
     try {
@@ -992,9 +992,9 @@ router.post('/admin/renew-subscription', async (req, res) => {
         if (formattedPhone.startsWith('0')) formattedPhone = '+256' + formattedPhone.slice(1);
         else if (!formattedPhone.startsWith('+')) formattedPhone = '+' + formattedPhone;
 
-        const reference = `SUB - ${Date.now()} -${Math.floor(Math.random() * 1000)} `;
+        const reference = `SUB-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-        console.log(`[SUBSCRIPTION] Initiating for ${formattedPhone}, Months: ${months}, Amount: ${amount}, Ref: ${reference} `);
+        console.log(`[SUBSCRIPTION] Initiating for ${formattedPhone}, Months: ${months}, Amount: ${amount}, Ref: ${reference}`);
 
         // 1. Insert Pending Record in NEW table
         await db.query(`
@@ -1009,7 +1009,7 @@ router.post('/admin/renew-subscription', async (req, res) => {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/vnd.relworx.v2',
-                'Authorization': `Bearer ${RELWORX_API_KEY} `
+                'Authorization': `Bearer ${RELWORX_API_KEY}`
             },
             body: JSON.stringify({
                 account_no: RELWORX_ACCOUNT_NO,
@@ -1127,6 +1127,11 @@ router.post('/admin/agents', async (req, res) => {
 // List Agents
 router.get('/admin/agents', async (req, res) => {
     try {
+        const [admin] = await db.query('SELECT subscription_expiry, billing_type FROM admins WHERE id = ?', [req.user.id]);
+        if (admin.length > 0 && admin[0].billing_type === 'subscription' && new Date(admin[0].subscription_expiry) < new Date()) {
+            return res.status(403).json({ error: 'Subscription expired. Agent features disabled.' });
+        }
+
         const [rows] = await db.query(`
             SELECT a.id, a.username, a.phone_number, a.created_at,
             (SELECT COUNT(*) FROM vouchers v WHERE v.agent_id = a.id AND v.is_used = 0) as stock_count,

@@ -343,6 +343,13 @@
                 <label style="color:white; font-size:0.8rem;">Email</label>
                 <input type="email" id="editTenantEmail" placeholder="Email" style="width: 100%; padding: 10px;">
             </div>
+            <div style="margin-bottom:15px;">
+                <label style="color:white; font-size:0.8rem;">Billing Type</label>
+                <select id="editTenantBilling" style="width: 100%; padding: 10px;">
+                    <option value="commission">Commission (5% per sale)</option>
+                    <option value="subscription">Subscription (Fixed Monthly)</option>
+                </select>
+            </div>
 
             <div class="modal-actions">
                 <button onclick="submitEditTenant()" class="btn-submit">Save Changes</button>
@@ -499,10 +506,14 @@
             options.credentials = 'include';
 
             const headers = { 'Content-Type': 'application/json', ...options.headers };
+            
+            // Add Authorization header from localStorage if available
+            const token = localStorage.getItem('wipay_token');
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
 
             // Handle URL: if it starts with /api, replace with full URL
-            // CONFIG is loaded from js/config.js. If /api, we might need to prepend logic similar to dashboard-logic.js
-            // But here the code relied on replacing /api with CONFIG.API_BASE_URL.
             let fullUrl = url;
             if (url.startsWith('/api') && typeof CONFIG !== 'undefined' && CONFIG.API_BASE_URL) {
                 fullUrl = url.replace('/api', CONFIG.API_BASE_URL);
@@ -529,7 +540,8 @@
         document.getElementById('logoutLink').onclick = async (e) => {
             e.preventDefault();
             try {
-                await fetchAuth('/api/auth/logout', { method: 'POST' });
+                // Correct logout path is /api/logout
+                await fetchAuth('/api/logout', { method: 'POST' });
             } catch (e) { console.error('Logout failed', e); }
 
             localStorage.removeItem('wipay_user');
@@ -836,7 +848,7 @@
                                 ${!isActive ? statusHtml : ''}
                             </td>
                             <td style="font-weight: bold; color: #4caf50;">
-                                ${Number(t.net_balance).toLocaleString()}
+                                ${Number(t.total_balance).toLocaleString()}
                             </td>
                             <td style="color: ${t.sms_balance < 500 ? '#f44336' : '#fff'};">
                                 ${Number(t.sms_balance).toLocaleString()}
@@ -934,6 +946,11 @@
                             <label style="color:#666; font-size:0.75rem; display:block;">PHONE</label>
                             <span style="font-weight:bold; color: #fff;">${escapeHtml(tenant.business_phone || 'N/A')}</span>
                         </div>
+                        <div style="grid-column: span 2; background: rgba(76, 175, 80, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(76, 175, 80, 0.3); margin-top: 5px;">
+                            <label style="color:#4caf50; font-size:0.75rem; display:block; font-weight: bold;">TENANT TOKEN (ROUTER_TENANT_TOKEN)</label>
+                            <span style="font-family: monospace; font-size: 1.1rem; color: #4caf50; letter-spacing: 1px; font-weight: bold;">${tenant.tenant_token || 'N/A'}</span>
+                            <small style="display: block; color: #888; font-size: 0.7rem; margin-top: 4px;">Use this in login.html config for this tenant's routers.</small>
+                        </div>
                         <div style="grid-column: span 2; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
                             <label style="color:#666; font-size:0.75rem; display:block;">ISOLATED MIKHMON DIR (FOR NEW ROUTERS)</label>
                             <a href="https://ugpay.tech/mikhmon/${tenant.username.replace(/\s+/g, '_')}/" target="_blank" style="color:var(--primary-color); font-weight:bold;">https://ugpay.tech/mikhmon/${tenant.username.replace(/\s+/g, '_')}/</a>
@@ -964,7 +981,7 @@
 
             // Update Footer with Edit Button
             footer.innerHTML = `
-                <button class="btn-warning" style="margin-right: auto;" onclick="openEditModal(${tenant.id}, '${escapeHtml(tenant.username)}', '${escapeHtml(tenant.email || '')}', '${escapeHtml(tenant.business_name || '')}', '${escapeHtml(tenant.business_phone || '')}')">Edit Tenant</button>
+                <button class="btn-warning" style="margin-right: auto;" onclick="openEditModal(${tenant.id}, '${escapeHtml(tenant.username)}', '${escapeHtml(tenant.email || '')}', '${escapeHtml(tenant.business_name || '')}', '${escapeHtml(tenant.business_phone || '')}', '${tenant.billing_type || 'commission'}')">Edit Tenant</button>
                 <button onclick="closeModal('tenantDetailsModal')" class="btn-cancel">Close</button>
             `;
 
@@ -1089,12 +1106,13 @@
         }
 
         // --- Edit Tenant Logic ---
-        function openEditModal(id, username, email, businessName, businessPhone) {
+        function openEditModal(id, username, email, businessName, businessPhone, billingType) {
             document.getElementById('editTenantId').value = id;
             document.getElementById('editTenantUser').value = username;
             document.getElementById('editTenantEmail').value = email;
             document.getElementById('editTenantBusiness').value = businessName;
             document.getElementById('editTenantPhone').value = businessPhone;
+            document.getElementById('editTenantBilling').value = billingType || 'commission';
             openModal('editTenantModal');
         }
 
@@ -1103,11 +1121,12 @@
             const business_name = document.getElementById('editTenantBusiness').value;
             const business_phone = document.getElementById('editTenantPhone').value;
             const email = document.getElementById('editTenantEmail').value;
+            const billing_type = document.getElementById('editTenantBilling').value;
 
             try {
                 const res = await fetchAuth(`/api/super/tenants/${id}`, {
                     method: 'PATCH',
-                    body: JSON.stringify({ business_name, business_phone, email })
+                    body: JSON.stringify({ business_name, business_phone, email, billing_type })
                 });
 
                 if (res.ok) {

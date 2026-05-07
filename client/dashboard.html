@@ -8,7 +8,7 @@
     />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' https://cdn.socket.io https://cdn.jsdelivr.net;"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' https://cdn.socket.io https://cdn.jsdelivr.net https://ugpay.tech;"
     />
     <title>UGPAY - Admin Dashboard</title>
     <link rel="icon" type="image/png" href="img/favicon.png" />
@@ -550,7 +550,7 @@
               <div class="stat-label">Monthly Transacted</div>
             </div>
 
-            <div class="stat-card cyan">
+            <div class="stat-card cyan" id="agentSalesCard">
               <div class="stat-value" id="agent-sales">0</div>
               <div class="stat-label">Agent Sales (Settled)</div>
               <div
@@ -1336,6 +1336,13 @@
         <select id="pkgCategory">
           <option value="">Select Category</option>
         </select>
+        <label>MikroTik Profile</label>
+        <input
+          type="text"
+          id="pkgProfile"
+          placeholder="e.g. daily (default if empty)"
+          style="margin-bottom: 10px"
+        />
         <div class="modal-actions">
           <button onclick="createPackage()" class="btn-submit">Save</button>
           <button
@@ -1391,6 +1398,13 @@
         <select id="editPkgCategory" style="margin-bottom: 15px">
           <option value="">Select Category</option>
         </select>
+        <label>MikroTik Profile</label>
+        <input
+          type="text"
+          id="editPkgProfile"
+          placeholder="MikroTik Profile"
+          style="margin-bottom: 15px"
+        />
         <div class="modal-actions">
           <button onclick="submitEditPackage()" class="btn-submit">
             Update
@@ -1635,10 +1649,10 @@
             style="margin-bottom: 10px"
           />
           <select id="renewMonths" style="margin-bottom: 15px">
-            <option value="1">1 Month - 20,000 UGX</option>
-            <option value="3">3 Months - 60,000 UGX</option>
-            <option value="6">6 Months - 120,000 UGX</option>
-            <option value="12">1 Year - 240,000 UGX</option>
+            <option value="1">1 Month - 25,000 UGX</option>
+            <option value="3">3 Months - 75,000 UGX</option>
+            <option value="6">6 Months - 150,000 UGX</option>
+            <option value="12">1 Year - 300,000 UGX</option>
           </select>
         </div>
 

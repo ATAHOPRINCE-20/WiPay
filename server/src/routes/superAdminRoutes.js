@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const { exec } = require("child_process");
 const db = require("../config/db");
 const { authenticateToken, verifySuperAdmin } = require("../middleware/auth");
@@ -32,14 +33,15 @@ router.use(verifySuperAdmin);
 // Get All Tenants (Admins) with their routers
 router.get("/tenants", async (req, res) => {
   try {
+    const WITHDRAWAL_FEE = Number(process.env.WITHDRAW_FEE || 0);
     const query = `
             SELECT 
                 a.id, a.username, a.role, a.billing_type, a.subscription_expiry, a.last_active_at, a.created_at,
-                a.email, a.business_name, a.business_phone,
+                a.email, a.business_name, a.business_phone, a.tenant_token,
                 a.vpn_ip, a.vpn_private_key, a.vpn_public_key, a.vpn_server_pub, a.vpn_endpoint,
-                (SELECT COALESCE(SUM(t.amount - COALESCE(t.fee, 0)), 0) FROM transactions t WHERE t.admin_id = a.id AND t.status = 'SUCCESS') as gross_revenue,
+                (SELECT COALESCE(SUM(t.amount - COALESCE(t.fee, 0)), 0) FROM transactions t WHERE t.admin_id = a.id AND t.status = 'SUCCESS' AND t.payment_method != 'manual' AND t.payment_method != 'cash_agent') as gross_revenue,
                 (SELECT COALESCE(SUM(w.amount + COALESCE(w.fee, 0)), 0) FROM withdrawals w WHERE w.admin_id = a.id AND (w.status = 'success' OR w.status = 'pending')) as total_payouts,
-                (SELECT COALESCE(SUM(s.amount), 0) FROM sms_fees s WHERE s.admin_id = a.id) as sms_balance,
+                (SELECT COALESCE(SUM(s.amount), 0) FROM sms_fees s WHERE s.admin_id = a.id AND (s.status = 'success' OR s.status IS NULL) AND s.type != 'subscription') as sms_balance,
                 JSON_ARRAYAGG(
                     JSON_OBJECT(
                         'id', r.id,
@@ -59,9 +61,11 @@ router.get("/tenants", async (req, res) => {
 
     // Clean up JSON_ARRAYAGG and calculate net_balance
     const cleanedAdmins = admins.map((admin) => {
-        const netBalance = Number(admin.gross_revenue) - Number(admin.total_payouts);
+        const totalBalance = Number(admin.gross_revenue) - Number(admin.total_payouts);
+        const netBalance = totalBalance - WITHDRAWAL_FEE;
         return {
             ...admin,
+            total_balance: Math.max(0, totalBalance),
             net_balance: Math.max(0, netBalance),
             routers:
             admin.routers && admin.routers[0] && admin.routers[0].id !== null
@@ -105,9 +109,11 @@ router.post("/tenants", async (req, res) => {
     const bName = business_name || "UGPAY";
     const bPhone = business_phone || null;
 
+    const token = crypto.randomBytes(6).toString('hex'); // 12 chars
+
     const [result] = await db.query(
-      "INSERT INTO admins (username, password_hash, role, billing_type, email, business_name, business_phone) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [username, hash, "admin", billingType, userEmail, bName, bPhone],
+      "INSERT INTO admins (username, password_hash, role, billing_type, email, business_name, business_phone, tenant_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [username, hash, "admin", billingType, userEmail, bName, bPhone, token],
     );
 
     // AUTOMATION: Create Isolated Mikhmon Instance
@@ -219,12 +225,11 @@ router.patch("/tenants/:id/subscription", async (req, res) => {
 // Update Tenant Profile
 router.patch("/tenants/:id", async (req, res) => {
   const tenantId = req.params.id;
-  const { business_name, business_phone, email } = req.body;
-
+  const { business_name, business_phone, email, billing_type } = req.body;
   try {
     await db.query(
-      "UPDATE admins SET business_name = ?, business_phone = ?, email = ? WHERE id = ?",
-      [business_name, business_phone, email, tenantId],
+      "UPDATE admins SET business_name = ?, business_phone = ?, email = ?, billing_type = ? WHERE id = ?",
+      [business_name, business_phone, email, billing_type || 'commission', tenantId],
     );
     res.json({ message: "Tenant updated successfully" });
   } catch (err) {

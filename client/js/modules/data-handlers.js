@@ -13,7 +13,8 @@ let currentMyTransactions = [];
 let currentBoughtVouchers = [];
 let currentRouterFilter = "";
 let countdownInterval = null;
-let currentSMSBalance = 0; // Added state to track balance locally
+let currentSMSBalance = 0; 
+let isSubscribed = true; 
 
 export function setCurrentRouterFilter(val) {
     currentRouterFilter = val;
@@ -71,10 +72,16 @@ export async function loadStats() {
         const banner = document.getElementById('expiryBanner');
         if (banner) {
             const hasExpiry = data.subscription && data.subscription.expiry;
+            const billingType = data.subscription && data.subscription.billing_type;
+            const agentNavItem = document.querySelector('li[data-view="agents"]');
+            const agentSalesCard = document.getElementById('agentSalesCard');
             
-            if (!hasExpiry) {
+            if (!hasExpiry || billingType !== 'subscription') {
+                isSubscribed = true;
                 banner.style.display = 'none';
                 if (countdownInterval) clearInterval(countdownInterval);
+                if (agentNavItem) agentNavItem.style.display = 'block';
+                if (agentSalesCard) agentSalesCard.style.display = 'block';
             } else {
                 const expiry = new Date(data.subscription.expiry);
                 const now = new Date();
@@ -85,13 +92,21 @@ export async function loadStats() {
 
                 if (expiry < now) {
                     // Expired - Red
+                    isSubscribed = false;
                     banner.style.display = 'flex';
                     banner.style.background = 'var(--grad-red)'; 
                     banner.innerHTML = `<span class="banner-icon">⚠️</span> <strong>ALERT:</strong> Your Subscription has EXPIRED. <span class="renew-link">Click here to Renew</span>`;
+                    
+                    if (agentNavItem) agentNavItem.style.display = 'none';
+                    if (agentSalesCard) agentSalesCard.style.display = 'none';
                 } else if (diff < threeDays) {
                     // Expiring Soon - Amber/Orange
+                    isSubscribed = true;
                     banner.style.display = 'flex';
                     banner.style.background = 'var(--grad-orange)'; 
+                    
+                    if (agentNavItem) agentNavItem.style.display = 'block';
+                    if (agentSalesCard) agentSalesCard.style.display = 'block';
                     
                     const updateTimer = () => {
                         const currentNow = new Date();
@@ -284,7 +299,7 @@ export async function fetchPackagesList() {
                 <tr onclick="viewPackageDetails(${index})" style="cursor: pointer;">
                     <td>
                         <span>${ui.escapeHtml(p.name)}</span>
-                        <button class="hover-edit-btn" onclick="event.stopPropagation(); openEditPackageModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price}, ${p.category_id})" title="Edit">
+                        <button class="hover-edit-btn" onclick="event.stopPropagation(); openEditPackageModal(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price}, ${p.category_id}, '${(p.profile || 'default').replace(/'/g, "\\'")}')" title="Edit">
                             <i class="fas fa-pen"></i>
                         </button>
                     </td>
@@ -324,12 +339,14 @@ export async function createPackage() {
     }
 
     try {
-        const res = await api.post('/api/admin/packages', { name, price, category_id: catId, router_id: currentRouterFilter });
+        const profile = document.getElementById('pkgProfile').value || 'default';
+        const res = await api.post('/api/admin/packages', { name, price, category_id: catId, router_id: currentRouterFilter, profile });
         if (res.ok) {
             ui.closeDashModal('addPackageModal');
             ui.showAlert('Package created');
             document.getElementById('pkgPrice').value = '';
             document.getElementById('pkgCategory').value = '';
+            document.getElementById('pkgProfile').value = '';
             fetchPackagesList();
             loadStats();
         }
@@ -345,7 +362,8 @@ export async function submitEditPackage() {
     if (!name || !price || !catId) return ui.showAlert('All fields required', 'error');
 
     try {
-        const res = await api.put(`/api/admin/packages/${id}`, { name, price, category_id: catId });
+        const profile = document.getElementById('editPkgProfile').value || 'default';
+        const res = await api.put(`/api/admin/packages/${id}`, { name, price, category_id: catId, profile });
         if (res.ok) {
             ui.closeDashModal('editPackageModal');
             ui.showAlert('Package updated');
@@ -441,6 +459,7 @@ export async function fetchVouchersList() {
                             <div><strong>Ref:</strong> <span class="detail-text-muted">${v.package_ref || '-'}</span></div>
                             <div><strong>Created:</strong> ${new Date(v.created_at).toLocaleDateString()}</div>
                             <div><strong>Status:</strong> Available</div>
+                            <div><strong>Profile:</strong> <span style="color: #03a9f4;">${v.profile || 'default'}</span></div>
                             <div style="grid-column: span 2;">
                                 <strong>Comment:</strong> <span class="detail-text-muted">${v.comment || '-'}</span>
                             </div>
@@ -1201,7 +1220,7 @@ export async function submitChangePass() {
 export async function startSubscriptionRenewal() {
     const phone = document.getElementById('renewPhone').value;
     const months = document.getElementById('renewMonths').value;
-    const amount = (months == 1) ? 20000 : (months == 3) ? 60000 : (months == 6) ? 120000 : 240000;
+    const amount = (months == 1) ? 25000 : (months == 3) ? 75000 : (months == 6) ? 150000 : 300000;
 
     if (!phone) return ui.showAlert('Enter Phone', 'error');
 
@@ -1251,6 +1270,16 @@ export async function openCheckSiteModal() {
 // --- AGENT MANAGEMENT ---
 
 export async function fetchAgentsList() {
+    if (!isSubscribed) {
+        const tbody = document.getElementById('agentsTableBody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #ff9800; padding: 20px;">
+                <i class="fas fa-lock"></i> Subscription Required<br>
+                <small>Please renew your subscription to access Agent Management.</small>
+            </td></tr>`;
+        }
+        return;
+    }
     try {
         const res = await fetchAuth('/api/admin/agents');
         const data = await res.json();
@@ -1346,7 +1375,7 @@ export async function openAssignVoucherModal(id, name) {
             packages.forEach(pkg => {
                 const opt = document.createElement('option');
                 opt.value = pkg.id;
-                opt.innerText = `${pkg.name} (${pkg.price} UGX) - Stock: ${pkg.vouchers_count}`;
+                opt.innerText = `${pkg.name} (${pkg.price} UGX) - Unassigned: ${pkg.unassigned_vouchers_count}`;
                 select.appendChild(opt);
             });
             ui.openDashModal('assignVouchersModal');
@@ -1398,7 +1427,7 @@ export async function settleAgentAccount(agentId, name, amount) {
 }
 
 export function performLogout() {
-    fetchAuth('/api/auth/logout', { method: 'POST' }).catch(console.error);
+    fetchAuth('/api/logout', { method: 'POST' }).catch(console.error);
     localStorage.removeItem('wipay_token');
     localStorage.removeItem('wipay_user');
     window.location.href = 'login_dashboard.html';

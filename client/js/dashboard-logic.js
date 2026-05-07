@@ -50,10 +50,11 @@ window.openAddPackageModal = async () => {
     await dh.loadCategoriesForSelect('pkgCategory');
     ui.openDashModal('addPackageModal');
 };
-window.openEditPackageModal = async (id, name, price, catId) => {
+window.openEditPackageModal = async (id, name, price, catId, profile) => {
     document.getElementById('editPkgId').value = id;
     document.getElementById('editPkgName').value = name;
     document.getElementById('editPkgPrice').value = price;
+    document.getElementById('editPkgProfile').value = profile || 'default';
     await dh.loadCategoriesForSelect('editPkgCategory', catId);
     ui.openDashModal('editPackageModal');
 };
@@ -167,10 +168,14 @@ window.viewPackageDetails = (index) => {
                         <div style="color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Vouchers</div>
                         <div style="font-size: 1rem;">${data.vouchers_count || 0}</div>
                     </div>
+                    <div>
+                        <div style="color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">MikroTik Profile</div>
+                        <div style="font-size: 1rem; color: #03a9f4; font-weight: 600;">${data.profile || 'default'}</div>
+                    </div>
                 </div>
                 
                 <div class="modal-actions" style="margin-top: 0; gap: 12px; flex-wrap: wrap;">
-                    <button class="btn-submit" style="flex: 1; min-width: 140px;" onclick="closeDashModal('packageDetailModal'); openEditPackageModal(${data.id}, '${data.name.replace(/'/g, "\\'")}', ${data.price}, ${data.category_id})">
+                    <button class="btn-submit" style="flex: 1; min-width: 140px;" onclick="closeDashModal('packageDetailModal'); openEditPackageModal(${data.id}, '${data.name.replace(/'/g, "\\'")}', ${data.price}, ${data.category_id}, '${(data.profile || 'default').replace(/'/g, "\\'")}')">
                         <i class="fas fa-edit"></i> Edit
                     </button>
                     ${isActive 

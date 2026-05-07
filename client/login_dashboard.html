@@ -84,6 +84,7 @@
             fetch(`${CONFIG.API_BASE_URL}/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ username: user, password: pass })
             })
                 .then(res => res.json())
@@ -93,7 +94,8 @@
                         btn.textContent = 'Success!';
                         btn.style.background = '#2ecc71';
 
-                        // Store User Info (Non-sensitive)
+                        // Store User Info & Token
+                        localStorage.setItem('wipay_token', data.token);
                         localStorage.setItem('wipay_role', data.role);
                         localStorage.setItem('wipay_user', JSON.stringify({
                             username: data.username,

@@ -11,8 +11,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { runPendingMigrations } = require('./src/utils/dbMigration');
 
+
+
 const app = express();
+app.disable('x-powered-by');
 const server = http.createServer(app);
+app.set('trust proxy', 1); 
+
 
 // Run Migrations (Async)
 runPendingMigrations().catch(err => console.error('Migration Error:', err));
@@ -48,6 +53,7 @@ const userAuthLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.body.username || req.ip,
+    validate: { xForwardedForHeader: false },
 });
 
 const ipAuthLimiter = rateLimit({
@@ -56,9 +62,29 @@ const ipAuthLimiter = rateLimit({
     message: { error: "Too many login attempts from this network. Please try again in an hour." },
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
 });
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdnjs.cloudflare.com", "https://kit.fontawesome.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://kit.fontawesome.com", "https://cdnjs.cloudflare.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "https://ka-f.fontawesome.com"],
+            imgSrc: ["'self'", "data:", "https://*"],
+            connectSrc: ["'self'", "https://*", "wss://*", "ws://*"],
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    },
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: false,
+        preload: false
+    },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" }
+}));
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(bodyParser.json());

@@ -43,7 +43,7 @@ router.post('/agent/login', async (req, res) => {
 
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false, // Temporary fix for redirect loop
+            secure: req.secure || req.headers['x-forwarded-proto'] === 'https', 
             sameSite: 'lax',
             maxAge: 24 * 60 * 60 * 1000
         });
@@ -57,9 +57,39 @@ router.post('/agent/login', async (req, res) => {
 
 // Middleware for agent-only routes
 const authenticateAgent = (req, res, next) => {
-    authenticateToken(req, res, () => {
+    authenticateToken(req, res, async () => {
+        // Ensure the user is actually an agent
         if (req.user && req.user.role === 'agent') {
-            next();
+            try {
+                // AGENT ACCESS VALIDATION
+                // We check if the Administrator who manages this agent has an active subscription.
+                // Commission-based admins are exempt from this check.
+                
+                const [adminRows] = await db.query(
+                    'SELECT billing_type, subscription_expiry FROM admins WHERE id = ?', 
+                    [req.user.admin_id]
+                );
+
+                if (adminRows.length > 0) {
+                    const { billing_type, subscription_expiry } = adminRows[0];
+                    
+                    const isSubscriptionBased = billing_type === 'subscription';
+                    const isExpired = new Date(subscription_expiry) < new Date();
+
+                    if (isSubscriptionBased && isExpired) {
+                        return res.status(403).json({ 
+                            error: 'System Access Denied: Admin subscription has expired. Please contact your administrator to renew.' 
+                        });
+                    }
+                }
+
+                // If not expired or not subscription-based, proceed
+                next();
+
+            } catch (err) {
+                console.error('[AgentGuard] Validation Error:', err);
+                res.status(500).json({ error: 'Internal security check failed' });
+            }
         } else {
             res.status(403).json({ error: 'Access denied: Agents only' });
         }

@@ -5,6 +5,11 @@
 export async function fetchAuth(url, options = {}) {
     options.credentials = 'include'; // Send HttpOnly cookies
     options.headers = options.headers || {};
+    
+    const token = localStorage.getItem('wipay_token');
+    if (token) {
+        options.headers['Authorization'] = `Bearer ${token}`;
+    }
 
     if (!options.headers['Content-Type'] && !(options.body instanceof FormData)) {
         options.headers['Content-Type'] = 'application/json';
@@ -27,18 +32,57 @@ export async function fetchAuth(url, options = {}) {
 
         const res = await fetch(targetUrl, options);
         if (res.status === 401 || res.status === 403) {
-            console.warn('Session expired');
+            const data = await res.json().catch(() => ({}));
+            const errorMsg = data.error || (res.status === 401 ? 'Session expired. Please login again.' : 'Access Denied');
+            
+            console.warn(`[Auth Error ${res.status}]`, errorMsg);
+
+            // Use the page's existing showAlert if available, otherwise use a fallback
+            if (window.showAlert) {
+                window.showAlert(errorMsg, 'error');
+            } else {
+                showFallbackAlert(errorMsg);
+            }
+            
+            // Clear local storage
             localStorage.removeItem('wipay_token');
             localStorage.removeItem('wipay_role');
             localStorage.removeItem('wipay_user');
-            window.location.href = 'login_dashboard.html';
-            return Promise.reject('Unauthorized');
+
+            // Wait 3 seconds before redirecting so the user can see the message
+            setTimeout(() => {
+                window.location.href = 'login_dashboard.html';
+            }, 3000);
+
+            return Promise.reject(errorMsg);
         }
         return res;
     } catch (err) {
         console.error('FetchAuth Error:', err);
         throw err;
     }
+}
+
+/**
+ * Fallback modern alert if the page doesn't have its own showAlert function
+ */
+function showFallbackAlert(message) {
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position: fixed; top: 20px; right: 20px; z-index: 9999;
+        background: #f44336; color: white; padding: 16px 24px;
+        border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        font-family: 'Inter', sans-serif; font-weight: 600;
+        animation: slideIn 0.3s ease-out;
+    `;
+    div.innerHTML = `<i class="fas fa-exclamation-circle" style="margin-right:10px;"></i> ${message}`;
+    
+    const style = document.createElement('style');
+    style.innerHTML = `
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(div);
 }
 
 // Add common API calls here
