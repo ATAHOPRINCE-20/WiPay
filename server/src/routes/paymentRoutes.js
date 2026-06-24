@@ -5,6 +5,7 @@ const sessionStore = require('../config/session');
 const { sendSMS } = require('../utils/sms');
 const { sendPaymentNotification, sendSMSPurchaseNotification, sendWithdrawalOTP, sendWithdrawalNotification, sendLowSMSBalanceWarning } = require('../utils/email');
 const { authenticateToken } = require('../middleware/auth');
+const { syncVoucherToRadius } = require('../utils/radius');
 require('dotenv').config();
 
 const RELWORX_API_URL = 'https://payments.relworx.com/api/mobile-money/request-payment';
@@ -15,7 +16,7 @@ const RELWORX_ACCOUNT_NO = process.env.RELWORX_ACCOUNT_NO;
 async function getAdminBalance(adminId) {
     try {
         const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE status = 'success' AND admin_id = ?", [adminId]);
-        const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount), 0) as total_withdrawn FROM withdrawals WHERE admin_id = ?", [adminId]);
+        const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount), 0) as total_withdrawn FROM withdrawals WHERE (status = 'success' OR status = 'pending') AND admin_id = ?", [adminId]);
         const bal = Number(transStats[0].total_revenue) - Number(withdrawStats[0].total_withdrawn);
         console.log(`[BALANCE] Admin ${adminId}: Rev=${transStats[0].total_revenue}, Wd=${withdrawStats[0].total_withdrawn}, Bal=${bal}`);
         return bal;
@@ -176,6 +177,11 @@ router.post('/webhook', async (req, res) => {
 
                         // 3. Mark Voucher Used
                         await db.query('UPDATE vouchers SET is_used = TRUE WHERE id = ?', [voucher.id]);
+
+                        // 3b. Sync voucher to RADIUS (for hotspot authentication)
+                        syncVoucherToRadius(voucher.code, tx.package_id).catch(err =>
+                            console.error(`[RADIUS WEBHOOK] Failed to sync voucher ${voucher.code}:`, err)
+                        );
 
                         // 4. Deduct SMS Fee
                         await db.query('INSERT INTO sms_fees (admin_id, amount, type, description, status) VALUES (?, ?, "usage", ?, "success")',
@@ -348,6 +354,10 @@ router.post('/check-payment-status', async (req, res) => {
                     if (availableVouchers.length > 0) {
                         const voucher = availableVouchers[0];
                         await db.query('UPDATE vouchers SET is_used = TRUE WHERE id = ?', [voucher.id]);
+                        // Sync voucher to RADIUS (for hotspot authentication)
+                        syncVoucherToRadius(voucher.code, tx.package_id).catch(err =>
+                            console.error(`[RADIUS POLL] Failed to sync voucher ${voucher.code}:`, err)
+                        );
                         await db.query('INSERT INTO sms_fees (admin_id, amount, type, description, status) VALUES (?, ?, "usage", ?, "success")',
                             [pkg.admin_id, -SMS_COST, `Voucher Sale: ${voucher.code}`]);
                         await db.query('UPDATE transactions SET voucher_code = ? WHERE transaction_ref = ?', [voucher.code, transaction_ref]);
@@ -551,6 +561,18 @@ router.get('/admin/my-transactions', authenticateToken, async (req, res) => {
         res.json(rows);
     } catch (err) {
         console.error('My Transactions Error:', err);
+        res.status(500).json({ error: 'Server Error' });
+    }
+});
+
+// Withdrawals history list
+router.get('/admin/withdrawals', authenticateToken, async (req, res) => {
+    try {
+        const query = 'SELECT * FROM withdrawals WHERE admin_id = ? ORDER BY created_at DESC';
+        const [rows] = await db.query(query, [req.user.id]);
+        res.json(rows);
+    } catch (err) {
+        console.error('Withdrawals History Error:', err);
         res.status(500).json({ error: 'Server Error' });
     }
 });

@@ -5,9 +5,10 @@ import { Wifi, Loader2, CheckCircle } from 'lucide-react'
 export default function CaptivePortal() {
   const [params]   = useSearchParams()
   const adminId    = params.get('admin') || params.get('admin_id')
+  const slug       = params.get('slug')
   const linkLogin  = params.get('link-login') || params.get('link_login') || ''
 
-  const [branding,  setBranding]  = useState({ name: 'WiPay', phone: '' })
+  const [branding,  setBranding]  = useState({ name: 'WiPay', phone: '', portal_logo: '', portal_welcome_msg: '', terms_text: '' })
   const [packages,  setPackages]  = useState([])
   const [loadingPkg, setLoadingPkg] = useState(true)
   const [selected,  setSelected]  = useState(null)
@@ -18,19 +19,36 @@ export default function CaptivePortal() {
   const [voucherCode, setVoucherCode] = useState('')
   const [msg,       setMsg]       = useState('')
   const [voucherInput, setVoucherInput] = useState('')
+  const [logoError, setLogoError] = useState(false)
+  const [ads,       setAds]       = useState([])
+  const [currentAdIndex, setCurrentAdIndex] = useState(0)
   const pollingRef = useRef(null)
 
-  const API = '/api/public'
+  const API = '/api'
 
   useEffect(() => {
-    if (!adminId) return
-    fetch(`${API}/branding?admin_id=${adminId}`)
-      .then(r => r.json()).then(b => setBranding(b)).catch(() => {})
-    fetch(`${API}/packages?admin_id=${adminId}`)
+    const query = new URLSearchParams()
+    if (adminId) query.set('admin_id', adminId)
+    if (slug) query.set('slug', slug)
+    const qStr = query.toString() ? `?${query.toString()}` : ''
+
+    fetch(`${API}/branding${qStr}`)
+      .then(r => r.json()).then(b => { setBranding(b); setLogoError(false) }).catch(() => {})
+    fetch(`${API}/packages${qStr}`)
       .then(r => r.json()).then(setPackages).catch(() => {})
       .finally(() => setLoadingPkg(false))
+    fetch(`${API}/public/portal-ads${qStr}`)
+      .then(r => r.json()).then(data => setAds(Array.isArray(data) ? data : [])).catch(() => {})
     return () => clearInterval(pollingRef.current)
-  }, [adminId])
+  }, [adminId, slug])
+
+  useEffect(() => {
+    if (ads.length <= 1) return
+    const timer = setInterval(() => {
+      setCurrentAdIndex(prev => (prev + 1) % ads.length)
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [ads])
 
   const buy = async () => {
     if (!phone.trim()) return setMsg('Please enter your phone number.')
@@ -72,16 +90,63 @@ export default function CaptivePortal() {
     document.body.appendChild(form); form.submit()
   }
 
+  const showLogo = branding.portal_logo && !logoError
+
   return (
     <div className="min-h-screen bg-surface flex flex-col items-center py-8 px-4">
-      {/* Header */}
+
+      {/* Header / Branding */}
       <header className="text-center mb-6">
-        <div className="inline-flex items-center justify-center w-14 h-14 bg-primary-500 rounded-2xl shadow-lg mb-3">
-          <Wifi className="w-7 h-7 text-white" />
-        </div>
+        {showLogo ? (
+          <img
+            src={branding.portal_logo}
+            alt={branding.name}
+            onError={() => setLogoError(true)}
+            className="w-16 h-16 rounded-2xl object-cover shadow-lg mx-auto mb-3"
+          />
+        ) : (
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-primary-500 rounded-2xl shadow-lg mb-3">
+            <Wifi className="w-7 h-7 text-white" />
+          </div>
+        )}
         <h1 className="text-2xl font-bold text-gray-900">{branding.name}</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Stay online, Stay informed</p>
+        <p className="text-sm text-gray-400 mt-0.5">
+          {branding.portal_welcome_msg || 'Stay online, Stay informed'}
+        </p>
       </header>
+
+      {/* Banner Ads */}
+      {ads.length > 0 && (
+        <div className="w-full max-w-sm mb-4">
+          <div className="card overflow-hidden relative h-36 bg-gray-100 flex items-center justify-center border border-gray-100">
+            {ads[currentAdIndex].link_url ? (
+              <a href={ads[currentAdIndex].link_url} target="_blank" rel="noopener noreferrer" className="w-full h-full block">
+                <img 
+                  src={ads[currentAdIndex].image_url} 
+                  alt={ads[currentAdIndex].title} 
+                  className="w-full h-full object-cover"
+                />
+              </a>
+            ) : (
+              <img 
+                src={ads[currentAdIndex].image_url} 
+                alt={ads[currentAdIndex].title} 
+                className="w-full h-full object-cover"
+              />
+            )}
+            {ads.length > 1 && (
+              <div className="absolute bottom-2 right-2 flex gap-1">
+                {ads.map((_, idx) => (
+                  <span 
+                    key={idx} 
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentAdIndex ? 'bg-primary-500 w-3' : 'bg-white/60'}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Voucher Redeem */}
       <div className="w-full max-w-sm mb-4">
@@ -116,7 +181,7 @@ export default function CaptivePortal() {
               <div key={pkg.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition">
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">{pkg.name}</p>
-                  <p className="text-xs text-gray-400">{pkg.validity_hours > 0 ? `${pkg.validity_hours}h` : 'Unlimited'}</p>
+                  <p className="text-xs text-gray-400">{pkg.duration_hours > 0 ? `${pkg.duration_hours}h` : 'Unlimited'}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-bold text-gray-900">{Number(pkg.price).toLocaleString()}/=</span>
@@ -130,6 +195,20 @@ export default function CaptivePortal() {
           </div>
         )}
       </div>
+
+      {/* Contact phone */}
+      {branding.phone && (
+        <p className="text-xs text-gray-400 mt-6 text-center">
+          For inquiries: WhatsApp or call {branding.phone}
+        </p>
+      )}
+
+      {/* Terms text */}
+      {branding.terms_text && (
+        <p className="text-[10px] text-gray-300 mt-3 text-center max-w-sm leading-relaxed">
+          {branding.terms_text}
+        </p>
+      )}
 
       {/* Polling overlay */}
       {step === 'polling' && (
@@ -178,12 +257,6 @@ export default function CaptivePortal() {
             </div>
           </div>
         </div>
-      )}
-
-      {branding.phone && (
-        <p className="text-xs text-gray-400 mt-6 text-center">
-          For inquiries: WhatsApp or call {branding.phone}
-        </p>
       )}
     </div>
   )

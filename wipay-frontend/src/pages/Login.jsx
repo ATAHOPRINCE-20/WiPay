@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Lock, User } from 'lucide-react'
+import { Loader2, Lock, User, Eye, EyeOff } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export default function Login() {
@@ -10,6 +10,7 @@ export default function Login() {
   const [form, setForm]     = useState({ username: '', password: '' })
   const [error, setError]   = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -55,13 +56,20 @@ export default function Login() {
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               id="password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="••••••••"
-              className="input pl-9"
+              className="input pl-9 pr-10"
               value={form.password}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 

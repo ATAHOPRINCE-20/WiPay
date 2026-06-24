@@ -79,6 +79,13 @@ app.use(bodyParser.json());
 // otherwise fall back to legacy `client` folder used by older deployments.
 const frontendDist = path.join(__dirname, '..', 'wipay-frontend', 'dist');
 const legacyClient = path.join(__dirname, '..', 'client');
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+console.log('Serving uploaded files from', uploadsDir);
+
 if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
     console.log('Serving static files from', frontendDist);

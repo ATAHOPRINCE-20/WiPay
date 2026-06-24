@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const db = require('../config/db');
 const { authenticateToken, verifySuperAdmin } = require('../middleware/auth');
 
@@ -11,7 +12,7 @@ router.use(verifySuperAdmin);
 // Get All Tenants (Admins)
 router.get('/tenants', async (req, res) => {
     try {
-        const [admins] = await db.query('SELECT id, username, role, billing_type, subscription_expiry, last_active_at, created_at FROM admins ORDER BY created_at DESC');
+        const [admins] = await db.query('SELECT id, username, role, billing_type, subscription_expiry, last_active_at, created_at, portal_slug FROM admins ORDER BY created_at DESC');
         res.json(admins);
     } catch (err) {
         console.error(err);
@@ -41,9 +42,10 @@ router.post('/tenants', async (req, res) => {
         const userEmail = email || null;
         const bName = business_name || 'UGPAY';
         const bPhone = business_phone || null;
+        const portalSlug = 'wp_' + crypto.randomBytes(6).toString('hex');
 
-        await db.query('INSERT INTO admins (username, password_hash, role, billing_type, email, business_name, business_phone) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [username, hash, 'admin', billingType, userEmail, bName, bPhone]);
+        await db.query('INSERT INTO admins (username, password_hash, role, billing_type, email, business_name, business_phone, portal_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [username, hash, 'admin', billingType, userEmail, bName, bPhone, portalSlug]);
 
         res.status(201).json({ message: 'Tenant created successfully' });
     } catch (err) {
@@ -125,6 +127,34 @@ router.get('/stats', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+// Update Tenant Details (Generic Edit)
+router.put('/tenants/:id', async (req, res) => {
+    const tenantId = req.params.id;
+    const { username, email, business_name, business_phone, billing_type, subscription_expiry } = req.body;
+
+    if (!username) {
+        return res.status(400).json({ error: 'Username is required' });
+    }
+
+    try {
+        let expiry = null;
+        if (billing_type === 'subscription' && subscription_expiry) {
+            expiry = new Date(subscription_expiry).toISOString().slice(0, 19).replace('T', ' ');
+        }
+
+        await db.query(
+            'UPDATE admins SET username = ?, email = ?, business_name = ?, business_phone = ?, billing_type = ?, subscription_expiry = ? WHERE id = ?',
+            [username, email || null, business_name || 'UGPAY', business_phone || null, billing_type || 'commission', expiry, tenantId]
+        );
+        res.json({ message: 'Tenant updated successfully' });
+    } catch (err) {
+        console.error('Update Tenant Error:', err);
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ error: 'Username or email already exists' });
+        }
+        res.status(500).json({ error: 'Failed to update tenant' });
     }
 });
 

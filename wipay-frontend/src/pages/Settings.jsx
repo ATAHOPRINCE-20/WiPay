@@ -46,7 +46,7 @@ export default function Settings() {
   const renewSubscription = async (e) => {
     e.preventDefault(); setSaving('sub'); setError(''); setMessage('')
     try {
-      const { data } = await api.post('/subscription/renew', subForm)
+      const { data } = await api.post('/admin/renew-subscription', subForm)
       setSubRef(data.reference)
       setSubStatus('pending')
       setMessage('Payment request sent. Approve on your phone.')
@@ -59,7 +59,7 @@ export default function Settings() {
   const pollSubscription = (ref) => {
     const interval = setInterval(async () => {
       try {
-        const { data } = await api.get(`/subscription/status/${ref}`)
+        const { data } = await api.get(`/admin/subscription-status/${ref}`)
         setSubStatus(data.status)
         if (data.status === 'success') {
           clearInterval(interval)

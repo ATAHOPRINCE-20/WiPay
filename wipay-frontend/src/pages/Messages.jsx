@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
-import { Loader2, MessageSquare, Wallet, Send } from 'lucide-react'
+import { Loader2, MessageSquare, Wallet, Send, X } from 'lucide-react'
 
 export default function Messages() {
   const [balance, setBalance] = useState(0)
@@ -13,13 +13,14 @@ export default function Messages() {
   const [pollStatus, setPollStatus] = useState('')
   const [error, setError]       = useState('')
   const [message, setMessage]   = useState('')
+  const [selectedRow, setSelectedRow] = useState(null)
 
   const load = async () => {
     setLoading(true)
     try {
-      const [b, l] = await Promise.all([api.get('/sms/balance'), api.get('/sms/logs')])
+      const [b, l] = await Promise.all([api.get('/admin/sms-balance'), api.get('/admin/sms-logs')])
       setBalance(b.data.balance)
-      setLogs(l.data)
+      setLogs(Array.isArray(l.data) ? l.data : [])
     } catch (_) {}
     setLoading(false)
   }
@@ -29,7 +30,7 @@ export default function Messages() {
   const buyCredits = async (e) => {
     e.preventDefault(); setSaving(true); setError(''); setMessage('')
     try {
-      const { data } = await api.post('/sms/buy', form)
+      const { data } = await api.post('/admin/buy-sms', form)
       setPollRef(data.reference)
       setPollStatus('pending')
       setMessage('Payment request sent. Approve on your phone.')
@@ -43,7 +44,7 @@ export default function Messages() {
   const startPolling = (ref) => {
     const interval = setInterval(async () => {
       try {
-        const { data } = await api.get(`/sms/status/${ref}`)
+        const { data } = await api.get(`/admin/sms-status/${ref}`)
         setPollStatus(data.status)
         if (data.status === 'success') {
           clearInterval(interval)
@@ -112,33 +113,78 @@ export default function Messages() {
         <div className="px-4 py-3 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">Send History</h3>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/60">
-              {['Phone', 'Message', 'Status', 'Date'].map(h => (
-                <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {logs.length === 0 ? (
-              <tr><td colSpan={4} className="text-center py-12 text-gray-400 text-sm">No SMS logs yet.</td></tr>
-            ) : logs.map(log => (
-              <tr key={log.id} className="hover:bg-gray-50/50">
-                <td className="px-4 py-3 font-medium text-gray-900">{log.phone_number}</td>
-                <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{log.message}</td>
-                <td className="px-4 py-3">{statusBadge(log.status)}</td>
-                <td className="px-4 py-3 text-gray-400 text-xs">
-                  {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
-                </td>
+        <div className="overflow-y-auto max-h-[60vh]">
+          <table className="w-full text-sm text-left table-fixed sm:table-auto">
+            <thead className="sticky top-0 bg-gray-50/95 backdrop-blur-sm z-10 border-b border-gray-100 shadow-sm">
+              <tr>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</th>
+                <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Message</th>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {logs.length === 0 ? (
+                <tr><td colSpan={4} className="text-center py-12 text-gray-400 text-sm">No SMS logs yet.</td></tr>
+              ) : logs.map(log => (
+                <tr 
+                  key={log.id} 
+                  onClick={() => setSelectedRow(log)}
+                  className="hover:bg-gray-50/50 cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3 font-medium text-gray-900 truncate">{log.phone_number}</td>
+                  <td className="hidden md:table-cell px-4 py-3 text-gray-500 truncate max-w-[200px]">{log.message}</td>
+                  <td className="px-4 py-3">{statusBadge(log.status)}</td>
+                  <td className="hidden md:table-cell px-4 py-3 text-gray-400 text-xs truncate">
+                    {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* Mobile Detail Modal */}
+      {selectedRow && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4 md:hidden" 
+          onClick={() => setSelectedRow(null)}
+        >
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm p-6 pb-8 animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-5">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{selectedRow.phone_number}</h3>
+                <p className="text-xs text-gray-400">Message Details</p>
+              </div>
+              <button onClick={() => setSelectedRow(null)} className="p-1.5 -mr-1.5 text-gray-400 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="flex justify-between border-b border-gray-50 pb-2">
+                <span className="text-xs text-gray-500">Status</span>
+                <span className="text-sm font-medium text-gray-900">{statusBadge(selectedRow.status)}</span>
+              </div>
+              <div className="flex flex-col border-b border-gray-50 pb-2">
+                <span className="text-xs text-gray-500 mb-1">Message Body</span>
+                <span className="text-sm text-gray-900 bg-gray-50 p-2 rounded-lg leading-relaxed">{selectedRow.message || '—'}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-50 pb-2">
+                <span className="text-xs text-gray-500">Sent At</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {selectedRow.created_at ? new Date(selectedRow.created_at).toLocaleString() : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buy SMS Modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setModal(false)}>
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
               <Send className="w-4 h-4 text-primary-500" /> Buy SMS Credits

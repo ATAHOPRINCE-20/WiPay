@@ -36,22 +36,7 @@ export function AuthProvider({ children }) {
       setAdmin(data.admin)
       return { ok: true }
     } catch (err) {
-      return { ok: false, message: err.response?.data?.error || 'Login failed.' }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const register = async (username, password, email) => {
-    setLoading(true)
-    try {
-      const { data } = await api.post('/auth/register', { username, password, email })
-      localStorage.setItem('wipay_token', data.token)
-      localStorage.setItem('wipay_admin', JSON.stringify(data.admin))
-      setAdmin(data.admin)
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, message: err.response?.data?.error || 'Registration failed.' }
+      return { ok: false, message: err.response?.data?.message || 'Login failed.' }
     } finally {
       setLoading(false)
     }
@@ -73,7 +58,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ admin, loading, booting, login, register, logout, refreshProfile }}>
+    <AuthContext.Provider value={{ admin, loading, booting, login, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

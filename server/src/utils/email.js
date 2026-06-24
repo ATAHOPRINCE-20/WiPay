@@ -187,10 +187,40 @@ async function sendLowSMSBalanceWarning(toEmail, currentBalance, username) {
     }
 }
 
+async function sendRegistrationOTP(toEmail, otp) {
+    if (!toEmail) return;
+
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: toEmail,
+        subject: `Verify Your Email: ${otp}`,
+        html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                <h2 style="color: #16b97a;">Email Verification</h2>
+                <p>Hello,</p>
+                <p>Thank you for choosing WiPay. Use the One-Time Password (OTP) below to verify your business email address and complete your signup.</p>
+                <div style="font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0; padding: 10px; background: #eee; text-align: center; border-radius: 4px;">
+                    ${otp}
+                </div>
+                <p style="color: #555;">This code expires in 10 minutes.</p>
+                <p style="margin-top: 20px; color: #777; font-size: 12px;">If you did not initiate this registration, please ignore this email.</p>
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`[EMAIL] Registration OTP Sent to ${toEmail}`);
+    } catch (err) {
+        console.error('[EMAIL] Failed to send registration OTP:', err.message);
+    }
+}
+
 module.exports = {
     sendPaymentNotification,
     sendSMSPurchaseNotification,
     sendWithdrawalNotification,
     sendWithdrawalOTP,
-    sendLowSMSBalanceWarning
+    sendLowSMSBalanceWarning,
+    sendRegistrationOTP
 };

@@ -325,6 +325,49 @@ router.post('/admin/vouchers/import', upload.single('file'), async (req, res) =>
     }
 });
 
+function generateVoucherCode(length, prefix) {
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // Exclude visually similar chars (0, O, 1, I)
+    let code = '';
+    for (let i = 0; i < length; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return (prefix || '') + code;
+}
+
+router.post('/admin/vouchers/generate', async (req, res) => {
+    const { package_id, quantity, prefix, code_length, is_giveaway, batch_ref } = req.body;
+    
+    if (!package_id || !quantity || quantity <= 0 || quantity > 500) {
+        return res.status(400).json({ error: 'Valid package ID and quantity (max 500) are required' });
+    }
+
+    try {
+        const [pkg] = await db.query('SELECT id, router_id FROM packages WHERE id = ? AND admin_id = ?', [package_id, req.user.id]);
+        if (pkg.length === 0) return res.status(404).json({ error: 'Package not found' });
+
+        const router_id = pkg[0].router_id;
+        const insertValues = [];
+        const generateLength = parseInt(code_length) || 8;
+
+        for (let i = 0; i < quantity; i++) {
+            const code = generateVoucherCode(generateLength, prefix);
+            insertValues.push([code, package_id, req.user.id, router_id, is_giveaway ? 1 : 0, batch_ref || null]);
+        }
+
+        // Batch insert
+        await db.query(
+            'INSERT INTO vouchers (code, package_id, admin_id, router_id, is_giveaway, package_ref) VALUES ?',
+            [insertValues]
+        );
+
+        req.io.emit('data_update', { type: 'vouchers' });
+        res.json({ message: `Successfully generated ${quantity} vouchers.` });
+    } catch (err) {
+        console.error('Generate Vouchers Error:', err);
+        res.status(500).json({ error: 'Failed to generate vouchers' });
+    }
+});
+
 router.get('/admin/vouchers', async (req, res) => {
     try {
         const router_id = req.query.router_id;
@@ -891,6 +934,145 @@ router.get('/admin/subscription-status/:reference', async (req, res) => {
     } catch (err) {
         console.error('Check Subscription Status Error:', err);
         res.status(500).json({ error: 'Failed to check status' });
+    }
+});
+
+// --- Web Configs (Branding) ---
+router.get('/admin/web-configs', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT portal_dns, portal_welcome_msg, terms_text, portal_logo FROM admins WHERE id = ?', [req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        console.error('Web Configs Error:', err);
+        res.status(500).json({ error: 'Failed to fetch web configs' });
+    }
+});
+
+router.put('/admin/web-configs', async (req, res) => {
+    const { portal_dns, portal_welcome_msg, terms_text } = req.body;
+    try {
+        await db.query(
+            'UPDATE admins SET portal_dns = ?, portal_welcome_msg = ?, terms_text = ? WHERE id = ?',
+            [portal_dns || null, portal_welcome_msg || null, terms_text || null, req.user.id]
+        );
+        res.json({ message: 'Web configs updated' });
+    } catch (err) {
+        console.error('Update Web Configs Error:', err);
+        if (err.code === 'ER_DUP_ENTRY') {
+             return res.status(400).json({ error: 'Domain already taken' });
+        }
+        res.status(500).json({ error: 'Failed to update web configs' });
+    }
+});
+
+router.post('/admin/web-configs/logo', upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    try {
+        const ext = path.extname(req.file.originalname);
+        const newName = `logo_${req.user.id}_${Date.now()}${ext}`;
+        // Multer dest is 'uploads/', __dirname is src/routes.
+        const newPath = path.join(__dirname, '../../uploads', newName);
+        fs.renameSync(req.file.path, newPath);
+        
+        const logo_url = `/uploads/${newName}`;
+        await db.query('UPDATE admins SET portal_logo = ? WHERE id = ?', [logo_url, req.user.id]);
+        
+        res.json({ logo_url });
+    } catch (err) {
+        console.error('Upload Logo Error:', err);
+        res.status(500).json({ error: 'Failed to upload logo' });
+    }
+});
+
+// --- Portal Ads ---
+router.get('/admin/portal-ads', async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT * FROM portal_ads WHERE admin_id = ? ORDER BY created_at DESC',
+            [req.user.id]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch Portal Ads Error:', err);
+        res.status(500).json({ error: 'Failed to fetch portal ads' });
+    }
+});
+
+router.post('/admin/portal-ads/upload', upload.single('file'), async (req, res) => {
+    const { title, link_url } = req.body;
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    try {
+        const ext = path.extname(req.file.originalname);
+        const newName = `ad_${req.user.id}_${Date.now()}${ext}`;
+        const newPath = path.join(__dirname, '../../uploads', newName);
+        fs.renameSync(req.file.path, newPath);
+
+        const image_url = `/uploads/${newName}`;
+        const [result] = await db.query(
+            'INSERT INTO portal_ads (admin_id, title, image_url, link_url, is_active) VALUES (?, ?, ?, ?, 1)',
+            [req.user.id, title, image_url, link_url || null]
+        );
+
+        res.json({
+            id: result.insertId,
+            title,
+            image_url,
+            link_url: link_url || null,
+            is_active: true,
+            message: 'Portal ad uploaded successfully'
+        });
+    } catch (err) {
+        console.error('Upload Portal Ad Error:', err);
+        res.status(500).json({ error: 'Failed to upload portal ad' });
+    }
+});
+
+router.patch('/admin/portal-ads/:id/toggle', async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT is_active FROM portal_ads WHERE id = ? AND admin_id = ?',
+            [req.params.id, req.user.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
+
+        const newState = rows[0].is_active ? 0 : 1;
+        await db.query(
+            'UPDATE portal_ads SET is_active = ? WHERE id = ?',
+            [newState, req.params.id]
+        );
+
+        res.json({ is_active: newState, message: 'Ad status updated successfully' });
+    } catch (err) {
+        console.error('Toggle Portal Ad Error:', err);
+        res.status(500).json({ error: 'Failed to toggle ad status' });
+    }
+});
+
+router.delete('/admin/portal-ads/:id', async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT image_url FROM portal_ads WHERE id = ? AND admin_id = ?',
+            [req.params.id, req.user.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
+
+        const imagePath = path.join(__dirname, '../..', rows[0].image_url);
+        fs.unlink(imagePath, (err) => {
+            if (err) console.warn('Could not delete image file:', err.message);
+        });
+
+        await db.query(
+            'DELETE FROM portal_ads WHERE id = ? AND admin_id = ?',
+            [req.params.id, req.user.id]
+        );
+
+        res.json({ message: 'Portal ad deleted successfully' });
+    } catch (err) {
+        console.error('Delete Portal Ad Error:', err);
+        res.status(500).json({ error: 'Failed to delete portal ad' });
     }
 });
 

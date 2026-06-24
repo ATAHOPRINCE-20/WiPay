@@ -32,15 +32,15 @@ export default function Dashboard() {
         api.get('/admin/active-users-chart', { params: { days } }),
       ])
       setStats(s.data)
-      setChart(c.data)
-      setUsers(u.data)
+      setChart(Array.isArray(c.data) ? c.data : [])
+      setUsers(Array.isArray(u.data) ? u.data : [])
     } catch (_) {}
     setLoading(false)
   }, [period, userPeriod])
 
   useEffect(() => { load() }, [load])
 
-  const fmt = (n) => `$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  const fmt = (n) => `UGX ${Number(n || 0).toLocaleString()}`
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -77,7 +77,7 @@ export default function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Payments Chart */}
+        {Array.isArray(chart) && chart.length > 0 ? (
         <div className="card p-5">
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -109,8 +109,11 @@ export default function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+        ) : (
+          <div className="card p-5"><p className="text-sm text-gray-400">No payment data available.</p></div>
+        )}
 
-        {/* Active Users Chart */}
+        {Array.isArray(users) && users.length > 0 ? (
         <div className="card p-5">
           <div className="flex items-start justify-between mb-1">
             <div>
@@ -155,6 +158,9 @@ export default function Dashboard() {
             </span>
           </div>
         </div>
+        ) : (
+          <div className="card p-5"><p className="text-sm text-gray-400">No user data available.</p></div>
+        )}
       </div>
 
       {/* Summary Row */}
