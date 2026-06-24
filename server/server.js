@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
@@ -74,7 +75,20 @@ app.use(cors({
 // --- Middleware ---
 app.use(cookieParser());
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, '../client')));
+// Serve frontend static files. Prefer `wipay-frontend/dist` if it exists (production build),
+// otherwise fall back to legacy `client` folder used by older deployments.
+const frontendDist = path.join(__dirname, '..', 'wipay-frontend', 'dist');
+const legacyClient = path.join(__dirname, '..', 'client');
+if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    console.log('Serving static files from', frontendDist);
+} else {
+    app.use(express.static(legacyClient));
+    console.log('Serving static files from', legacyClient);
+}
+
+// NOTE: SPA fallback and /login route are mounted after API routes to avoid
+// intercepting API requests. They are added below after route mounting.
 
 // --- Routes ---
 const authRoutes = require('./src/routes/authRoutes');
@@ -102,7 +116,26 @@ io.on('connection', (socket) => {
     });
 });
 
+// Serve legacy hotspot/login page if present in frontend dist
+app.get('/login', (req, res, next) => {
+    const hotspotFile = path.join(frontendDist, 'hotspot-login.html');
+    if (fs.existsSync(hotspotFile)) return res.sendFile(hotspotFile);
+    return next();
+});
+
+// SPA fallback: serve index.html for any unmatched route (lets React Router handle client-side routes)
+app.get('*', (req, res, next) => {
+    try {
+        const idx = fs.existsSync(path.join(frontendDist, 'index.html')) ? path.join(frontendDist, 'index.html') : path.join(legacyClient, 'index.html');
+        if (fs.existsSync(idx)) return res.sendFile(idx);
+        return next();
+    } catch (e) {
+        return next();
+    }
+});
+
 // Start Server
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log('--- SERVER RESTARTED: CHECK PAYMENT FIX ACTIVE ---');
 });

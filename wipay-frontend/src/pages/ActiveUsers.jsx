@@ -1,0 +1,111 @@
+import { useEffect, useState } from 'react'
+import api from '../services/api'
+import { Loader2, UserCheck, RefreshCw, Wifi } from 'lucide-react'
+
+export default function ActiveUsers() {
+  const [sessions, setSessions] = useState([])
+  const [stats, setStats]       = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true)
+    else setRefreshing(true)
+    try {
+      const [s, r] = await Promise.all([
+        api.get('/routers/sessions'),
+        api.get('/admin/stats'),
+      ])
+      setSessions(s.data)
+      setStats(r.data)
+    } catch (_) {}
+    setLoading(false)
+    setRefreshing(false)
+  }
+
+  useEffect(() => {
+    load()
+    const interval = setInterval(() => load(true), 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const fmtBytes = (b) => {
+    if (!b) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    let i = 0; let n = Number(b)
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
+    return `${n.toFixed(1)} ${units[i]}`
+  }
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+    </div>
+  )
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Active Users</h2>
+          <p className="text-sm text-gray-400">Live hotspot sessions from FreeRADIUS accounting</p>
+        </div>
+        <button className="btn-secondary" onClick={() => load(true)} disabled={refreshing}>
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: 'Active Now',  value: stats?.active_sessions ?? 0 },
+          { label: 'Total Clients', value: stats?.counts?.clients ?? stats?.vouchers?.used ?? 0 },
+          { label: 'Routers',     value: stats?.counts?.routers ?? 0 },
+        ].map(({ label, value }) => (
+          <div key={label} className="card p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
+              <UserCheck className="w-5 h-5 text-primary-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">{label}</p>
+              <p className="text-xl font-bold text-gray-900">{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/60">
+              {['Username', 'IP Address', 'MAC / Caller ID', 'Router IP', 'Download', 'Upload', 'Started'].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {sessions.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="text-center py-12 text-gray-400 text-sm">
+                  <Wifi className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  No active sessions right now.
+                </td>
+              </tr>
+            ) : sessions.map((s, i) => (
+              <tr key={i} className="hover:bg-gray-50/50">
+                <td className="px-4 py-3 font-medium text-gray-900">{s.username}</td>
+                <td className="px-4 py-3 text-gray-500">{s.framedipaddress || '—'}</td>
+                <td className="px-4 py-3 text-gray-500 font-mono text-xs">{s.callingstationid || '—'}</td>
+                <td className="px-4 py-3 text-gray-500">{s.nasipaddress || '—'}</td>
+                <td className="px-4 py-3 text-gray-500">{fmtBytes(s.acctoutputoctets)}</td>
+                <td className="px-4 py-3 text-gray-500">{fmtBytes(s.acctinputoctets)}</td>
+                <td className="px-4 py-3 text-gray-400 text-xs">
+                  {s.acctstarttime ? new Date(s.acctstarttime).toLocaleString() : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

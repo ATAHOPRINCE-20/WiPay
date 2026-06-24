@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UGPAY — Hotspot Login</title>
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+    <link rel="stylesheet" href="/css/style.css">
+    <!-- Critical override: ensures expected branding in captive environments -->
+    <style id="critical-override">
+:root{--primary-green:#00e676;--primary-green-dark:#00b359;--primary-bg:#1a1a2e;--text-white:#ffffff;--text-muted:#b0b3b8}
+body{font-family:Inter,Arial,Helvetica,sans-serif!important;margin:0;padding:0;min-height:100vh;display:flex;justify-content:center;align-items:center;background:linear-gradient(-45deg,#121212,#1a237e,#004d40,#1b5e20)!important;color:var(--text-white)!important}
+.container{background:rgba(255,255,255,0.03)!important;backdrop-filter:blur(20px)!important;-webkit-backdrop-filter:blur(20px)!important;border-radius:24px;padding:2.5rem;max-width:420px;width:90%;text-align:center;border:1px solid rgba(255,255,255,0.06)!important}
+header h1{font-size:1.8rem;margin:0 0 .5rem 0;font-weight:800}
+.wifi-icon-img{width:70px;height:auto;margin-bottom:1rem;display:block;margin-left:auto;margin-right:auto}
+.connect-btn{width:100%;padding:16px;background:linear-gradient(90deg,var(--primary-green),var(--primary-green-dark))!important;color:#003300;border-radius:16px;border:none;font-weight:700;cursor:pointer}
+.voucher-section input{width:100%;padding:14px 20px;background:transparent;border:none;color:#fff;text-align:center;font-size:1.1rem}
+.packages-grid{display:flex;flex-direction:column;gap:12px;margin-bottom:2rem}
+.package-row{background:rgba(255,255,255,0.03);border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr auto auto;align-items:center}
+/* ensure badges are visible */
+.method-badge{background:rgba(255,255,255,0.95)!important;color:#222!important}
+/* small utility */
+.hidden{display:none!important}
+    </style>
+    <!-- Inline full hotspot CSS to ensure consistent styling in captive environments -->
+    <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --primary-green: #00e676;
+    --primary-green-dark: #00b359;
+    --primary-bg: #1a1a2e;
+    --glass-bg: rgba(26, 26, 46, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    --text-white: #ffffff;
+    --text-muted: #b0b3b8;
+}
+
+body{font-family:'Inter',sans-serif;margin:0;padding:0;min-height:100vh;color:var(--text-white);display:flex;justify-content:center;align-items:center;overflow-x:hidden;background:linear-gradient(-45deg,#121212,#1a237e,#004d40,#1b5e20);background-size:400% 400%;animation:gradientBG 15s ease infinite}
+@keyframes gradientBG{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.container{background:rgba(255,255,255,0.03);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);padding:2.5rem;border-radius:24px;width:90%;max-width:420px;text-align:center;position:relative;z-index:10;margin:20px 0;animation:slideUpFade .8s cubic-bezier(.16,1,.3,1)}
+@keyframes slideUpFade{0%{opacity:0;transform:translateY(30px) scale(.95)}100%{opacity:1;transform:translateY(0) scale(1)}}
+header{margin-bottom:2rem}
+.wifi-icon-img{width:70px;height:auto;margin-bottom:1rem;display:block;margin-left:auto;margin-right:auto;filter:drop-shadow(0 0 15px rgba(0,230,118,.4))}
+header h1{font-size:1.8rem;margin:0 0 .5rem 0;font-weight:800;letter-spacing:-.5px;background:linear-gradient(to right,#fff,#b0b3b8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header p{color:var(--text-muted);font-size:.95rem;margin-top:0;font-weight:400}
+.section-card{background:rgba(0,0,0,.2);border-radius:16px;padding:6px;margin-bottom:1.25rem;border:1px solid rgba(255,255,255,.05);transition:transform .2s,background .2s}
+.section-card:focus-within{background:rgba(0,0,0,.3);border-color:rgba(255,255,255,.2);transform:translateY(-2px)}
+.free-trial{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;color:var(--text-white)}
+.trial-btn{background:transparent;border:1px solid var(--primary-green);color:var(--primary-green);padding:6px 16px;border-radius:99px;cursor:pointer;font-size:.85rem;font-weight:600}
+.trial-btn:hover{background:var(--primary-green);color:#000;box-shadow:0 0 15px rgba(0,230,118,.4)}
+.voucher-section input{width:100%;padding:14px 20px;background:transparent;border:none;color:#fff;text-align:center;font-size:1.1rem;font-weight:500;outline:none}
+.voucher-section input::placeholder{color:rgba(255,255,255,.3);font-weight:400}
+.connect-btn{width:100%;padding:16px;background:linear-gradient(90deg,#00e676,#00b359);color:#003300;border:none;border-radius:16px;font-size:1.1rem;font-weight:700;cursor:pointer;margin-bottom:2rem;transition:all .2s;text-transform:uppercase;letter-spacing:.5px;box-shadow:0 4px 15px rgba(0,230,118,.3)}
+.connect-btn:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 8px 25px rgba(0,230,118,.5);filter:brightness(1.1)}
+.payment-methods{margin-bottom:2rem;border-top:1px solid rgba(255,255,255,.1);padding-top:1.5rem}
+.payment-methods p{font-size:.75rem;margin-bottom:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px}
+.method-logos{display:flex;justify-content:center;gap:12px}
+.method-badge{background:rgba(255,255,255,.9);color:#333;padding:6px 14px;border-radius:8px;font-size:.8rem;font-weight:700;box-shadow:0 2px 5px rgba(0,0,0,.2)}
+.mtn{border-bottom:3px solid #ffcc00}.airtel{border-bottom:3px solid #ff0000}
+.packages-grid{display:flex;flex-direction:column;gap:12px;margin-bottom:2rem}
+.package-row{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:12px}
+.pkg-name{font-weight:600;font-size:.95rem;color:var(--text-white);text-align:left}
+.pkg-price{font-weight:500;font-size:.95rem;color:var(--primary-green);background:rgba(0,230,118,.1);padding:4px 8px;border-radius:6px}
+.pay-btn-ref{background:#fff;border:none;padding:8px 16px;border-radius:8px;color:#000;font-weight:700;font-size:.85rem;cursor:pointer}
+.pay-btn-ref:hover{background:var(--primary-green);box-shadow:0 0 10px rgba(0,230,118,.4)}
+.info-footer{margin-top:2rem;font-size:.85rem;color:var(--text-muted);line-height:1.5}
+.info-footer strong{color:var(--text-white);display:block;margin-bottom:4px;font-size:.9rem}
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);display:flex;justify-content:center;align-items:center;z-index:5000}
+.modal-content{background:#1e1e24;color:#fff;border:1px solid rgba(255,255,255,.1);padding:2rem;border-radius:20px;width:85%;max-width:380px;box-shadow:0 25px 50px -12px rgba(0,0,0,.6);position:relative;text-align:center;animation:modalPop .3s cubic-bezier(.16,1,.3,1)}
+@keyframes modalPop{from{opacity:0;transform:scale(.9) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-content h2{color:var(--text-white);margin:0 0 10px;font-size:1.25rem}
+.modal-content p{color:var(--text-muted);font-size:.9rem;margin-bottom:24px}
+.input-group{margin-bottom:24px}
+.modal-content input{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#fff;padding:16px;border-radius:12px;width:100%;font-size:1.1rem;text-align:center}
+    </style>
+    <style>
+    /* Critical inline styles to ensure portal appears styled even if external CSS fails */
+    body{font-family:Inter,Arial,Helvetica,sans-serif;margin:0;padding:0;min-height:100vh;display:flex;justify-content:center;align-items:center;background:linear-gradient(-45deg,#121212,#1a237e,#004d40,#1b5e20);background-size:400% 400%;animation:gradientBG 15s ease infinite;color:#fff}
+    @keyframes gradientBG{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+    .container{background:rgba(255,255,255,0.03);backdrop-filter:blur(20px);border-radius:24px;padding:2.5rem;max-width:420px;width:90%;text-align:center;border:1px solid rgba(255,255,255,0.06)}
+    header h1{font-size:1.8rem;margin:0 0 .5rem 0;font-weight:800}
+    .connect-btn{width:100%;padding:16px;background:linear-gradient(90deg,#00e676,#00b359);color:#003300;border-radius:16px;border:none;font-weight:700;cursor:pointer}
+    .voucher-section input{width:100%;padding:14px 20px;background:transparent;border:none;color:#fff;text-align:center;font-size:1.1rem}
+    .packages-grid{display:flex;flex-direction:column;gap:12px;margin-bottom:2rem}
+    .package-row{background:rgba(255,255,255,0.03);border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr auto auto;align-items:center}
+    </style>
+    <style>/* small adjustments for hotspot page */
+    .wifi-icon-img{width:70px;height:auto;margin-bottom:1rem;display:block;margin-left:auto;margin-right:auto}
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+                    <img src="/favicon.ico" alt="Wi-Fi" class="wifi-icon-img">
+            <h1>UGPAY</h1>
+            <p>Stay online, Stay informed</p>
+        </header>
+
+        <!-- Top Section: Free Trial & Voucher -->
+        <div class="section-card free-trial">
+            <span>Free trial available</span>
+            <button class="trial-btn" id="trialBtn">click here</button>
+        </div>
+
+        <div class="section-card voucher-section">
+            <input type="text" id="voucherCode" placeholder="Enter voucher / Teekamu koodi">
+        </div>
+
+        <button id="voucherRedeemBtn" class="connect-btn">Connect</button>
+
+        <!-- Payment Methods -->
+        <div class="payment-methods">
+            <p>We Accept</p>
+            <div class="method-logos">
+                <span class="method-badge airtel">Airtel Money</span>
+                <span class="method-badge mtn">MTN MoMo</span>
+            </div>
+        </div>
+
+        <!-- Packages Grid -->
+        <div id="packages-container" class="packages-grid">
+            <div class="loading">Loading packages...</div>
+        </div>
+        <div id="no-admin-msg" class="hidden" style="text-align:center; padding: 20px; color: #666;">
+            <p>Packages are Currently Unavailable, Please Contact the Admin for more information.</p>
+        </div>
+
+        <!-- Info Footer -->
+        <div class="info-footer">
+            <strong>FOR INQUIRIES</strong>
+            WhatsApp or call 0757136062<br>
+
+        </div>
+
+        <!-- Messages -->
+        <div id="statusMessage" class="status-message hidden"></div>
+    </div>
+
+    <!-- Payment Modal (kept minimal) -->
+    <div id="paymentModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button id="closeModalBtn" class="close-modal-btn">&times;</button>
+            <h2>Confirm Purchase</h2>
+            <p id="modalPackageName">Package Name</p>
+
+            <div class="input-group">
+                <input type="tel" id="modalPhoneNumber" placeholder="Enter Phone Number (e.g., 07XX...)" pattern="[0-9]*">
+            </div>
+
+            <div class="modal-actions">
+                <button id="modalPayBtn" class="btn primary-btn" style="background: var(--primary-green); border: none; padding: 12px; color: white;">Pay Now</button>
+                <button id="modalCancelBtn" class="btn secondary-btn" style="color: #aaa; text-decoration: none;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Lightweight CONFIG copied from archive (points to relative /api)
+    const CONFIG = { API_BASE_URL: '/api' };
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') {
+        console.warn('Running in Development Mode');
+        CONFIG.API_BASE_URL = 'http://localhost:5002/api';
+    }
+
+    (function(){
+        // Basic client JS: fetch packages and wire voucher submission to router login
+        const voucherCodeInput = document.getElementById('voucherCode');
+        const voucherRedeemBtn = document.getElementById('voucherRedeemBtn');
+        const packagesContainer = document.getElementById('packages-container');
+        const urlParams = new URLSearchParams(window.location.search);
+        const adminId = urlParams.get('admin') || '';
+        const routerLoginVar = urlParams.get('link-login') || urlParams.get('link_login') || urlParams.get('link-login-only') || '$(link-login-only)';
+
+        // Fetch packages
+        const fetchUrl = (adminId ? `${CONFIG.API_BASE_URL}/packages?admin_id=${adminId}` : `${CONFIG.API_BASE_URL}/packages`);
+        fetch(fetchUrl).then(r=>r.json()).then(pkgs=>{
+            packagesContainer.innerHTML = '';
+            if (!pkgs || pkgs.length===0) { document.getElementById('no-admin-msg').classList.remove('hidden'); packagesContainer.style.display='none'; return }
+            pkgs.forEach(pkg=>{
+                const row = document.createElement('div'); row.className='package-row';
+                row.innerHTML = `<div class="pkg-name">${pkg.name}</div><div class="pkg-price">${Number(pkg.price).toLocaleString()}/=</div><button class="pay-btn-ref" onclick="initiatePay('${pkg.id}','${pkg.name}',${pkg.price})">PAY</button>`;
+                packagesContainer.appendChild(row);
+            })
+        }).catch(e=>{ packagesContainer.innerHTML = '<div style="text-align:center;color:#ffdddd">Failed to load packages</div>'; console.error(e) });
+
+        window.initiatePay = function (id,name,price){ document.getElementById('modalPackageName').textContent = `${name} - ${Number(price).toLocaleString()} /=`; document.getElementById('paymentModal').classList.remove('hidden'); };
+
+        voucherRedeemBtn.addEventListener('click', ()=>{
+            const code = voucherCodeInput.value.trim(); if(!code){ alert('Please enter voucher code'); return }
+            let finalAction = routerLoginVar;
+            if (finalAction && finalAction.startsWith('$')) {
+                const alt = urlParams.get('link-login-only');
+                if (alt && !alt.startsWith('$')) finalAction = alt;
+                else finalAction = window.location.protocol + '//' + window.location.hostname + '/login';
+            }
+            try{
+                const form = document.createElement('form'); form.method='POST'; form.action=finalAction;
+                [['username',code],['password',code],['dst',urlParams.get('dst')||'/']].forEach(([n,v])=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; form.appendChild(i) });
+                document.body.appendChild(form); form.submit();
+            }catch(e){ console.error(e); alert('Login failed'); }
+        });
+
+        // Trial button: redirect to router trial login if variables present
+        const trialBtn = document.getElementById('trialBtn');
+        if (trialBtn) trialBtn.addEventListener('click', ()=>{
+            const linkLoginOnly = urlParams.get('link-login-only') || '$(link-login-only)';
+            if (linkLoginOnly && !linkLoginOnly.startsWith('$')) {
+                window.location.href = `${linkLoginOnly}?dst=${encodeURIComponent(window.location.href)}&username=T-${Date.now()}`;
+            } else {
+                alert('Trial not configured on this router');
+            }
+        });
+    })();
+    </script>
+</body>
+
+</html>

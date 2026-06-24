@@ -74,6 +74,7 @@ router.post('/purchase', async (req, res) => {
         });
 
         const paymentData = await response.json();
+        console.log(`[PURCHASE] Relworx Response for ${reference}:`, JSON.stringify(paymentData, null, 2));
 
         if (response.ok) {
             res.json({
@@ -242,25 +243,43 @@ router.post('/webhook', async (req, res) => {
 // Sync Polling Endpoint
 router.post('/check-payment-status', async (req, res) => {
     const { transaction_ref } = req.body;
+    console.log(`[POLL] Checking Ref: ${transaction_ref}`);
+
     if (!transaction_ref) return res.status(400).json({ error: 'Ref required' });
 
     try {
-        const [txs] = await db.query('SELECT * FROM transactions WHERE transaction_ref = ?', [transaction_ref]);
-        if (txs.length === 0) return res.status(404).json({ error: 'Transaction not found' });
+        let isSMS = transaction_ref.startsWith('SMS-');
+        let tx = null; // Standard transaction
+        let sms = null; // SMS transaction
 
-        const tx = txs[0];
-        // If DB already says success (e.g. from webhook), return immediately
-        if (tx.status === 'success') {
-            return res.json({ status: 'SUCCESS', voucher_code: tx.voucher_code });
+        // 1. Local DB Check
+        if (isSMS) {
+            console.log('[POLL] Lookup in sms_fees...');
+            const [rows] = await db.query('SELECT * FROM sms_fees WHERE reference = ?', [transaction_ref]);
+            if (rows.length === 0) {
+                console.log('[POLL] Not found in sms_fees');
+                return res.status(404).json({ error: 'SMS Transaction not found' });
+            }
+            sms = rows[0];
+            if (sms.status === 'success') return res.json({ status: 'SUCCESS' });
+            if (sms.status === 'failed') return res.json({ status: 'FAILED' });
+        } else {
+            console.log('[POLL] Lookup in transactions...');
+            const [rows] = await db.query('SELECT * FROM transactions WHERE transaction_ref = ?', [transaction_ref]);
+            if (rows.length === 0) {
+                console.log('[POLL] Not found in transactions');
+                return res.status(404).json({ error: 'Transaction not found' });
+            }
+            tx = rows[0];
+            if (tx.status === 'success') return res.json({ status: 'SUCCESS', voucher_code: tx.voucher_code });
+            if (tx.status === 'failed') return res.json({ status: 'FAILED' });
+            if (tx.status === 'failed_low_sms') return res.json({ status: 'FAILED_LOW_SMS' });
         }
-        if (tx.status === 'failed') return res.json({ status: 'FAILED' });
-        if (tx.status === 'failed_low_sms') return res.json({ status: 'FAILED_LOW_SMS' });
 
-
-        // Otherwise, ask Gateway
+        // 2. Gateway Check
         const checkUrl = `https://payments.relworx.com/api/mobile-money/check-request-status?account_no=${RELWORX_ACCOUNT_NO}&reference=${transaction_ref}&internal_reference=${transaction_ref}`;
+        console.log(`[POLL] Asking Gateway: ${checkUrl}`);
 
-        console.log(`[POLL] Checking: ${checkUrl}`);
         const response = await fetch(checkUrl, {
             method: 'GET',
             headers: {
@@ -270,96 +289,97 @@ router.post('/check-payment-status', async (req, res) => {
         });
 
         const data = await response.json();
+        console.log(`[POLL] Gateway says:`, data.status || data.item_status);
+
         const status = (data.status || '').toUpperCase();
         const itemStatus = (data.item_status || '').toUpperCase();
+        const isSuccess = (status === 'SUCCESS' || itemStatus === 'SUCCESS');
+        const isFailed = (status === 'FAILED' || itemStatus === 'FAILED');
 
-        // STRICT CHECK: Do NOT check data.success === true, as that refers to the API call success, not payment success.
-        if (status === 'SUCCESS' || itemStatus === 'SUCCESS') {
+        if (isSuccess) {
+            if (isSMS) {
+                // --- SMS SUCCESS LOGIC ---
+                console.log('[POLL] SMS Success. Updating DB...');
+                await db.query('UPDATE sms_fees SET status = "success" WHERE reference = ?', [transaction_ref]);
+                req.io.emit('data_update', { type: 'sms' });
+                req.io.emit('data_update', { type: 'sms_logs' });
+                // Notify by email
+                try {
+                    const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [sms.admin_id]);
+                    if (adminRows.length > 0) {
+                        const bal = await getAdminBalance(sms.admin_id);
+                        sendSMSPurchaseNotification(adminRows[0].email, sms.amount, 0, transaction_ref, bal, adminRows[0].username);
+                    }
+                } catch (e) { console.error(e); }
 
-            // Calculate Fee Dynamic
-            const [packages] = await db.query('SELECT * FROM packages WHERE id = ?', [tx.package_id]);
-            if (packages.length > 0) {
+                return res.json({ status: 'SUCCESS' });
+
+            } else {
+                // --- VOUCHER SUCCESS LOGIC ---
+                console.log('[POLL] Voucher Success. Updating DB...');
+
+                // Fetch Package Info
+                const [packages] = await db.query('SELECT * FROM packages WHERE id = ?', [tx.package_id]);
+                if (packages.length === 0) {
+                    // Should not happen, but safe fallback
+                    await db.query('UPDATE transactions SET status = "success" WHERE transaction_ref = ?', [transaction_ref]);
+                    return res.json({ status: 'SUCCESS' });
+                }
                 const pkg = packages[0];
                 const SMS_COST = 35;
 
-                // 1. Check SMS Balance
+                // Check SMS Balance
                 const [balRows] = await db.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [pkg.admin_id]);
                 const balance = Number(balRows[0].balance || 0);
 
                 if (balance >= SMS_COST) {
-                    // MARK AS SUCCESS ONLY IF BALANCE IS SUFFICIENT
-                    const [pkgs] = await db.query('SELECT admin_id FROM packages WHERE id = ?', [tx.package_id]);
+                    // Calculate Fee
                     let feeMs = 0;
-                    if (pkgs.length > 0) {
-                        const adminId = pkgs[0].admin_id;
-                        const [admins] = await db.query('SELECT billing_type FROM admins WHERE id = ?', [adminId]);
-                        if (admins.length > 0 && admins[0].billing_type === 'commission') {
-                            feeMs = tx.amount * 0.05;
-                        }
+                    const [admins] = await db.query('SELECT billing_type FROM admins WHERE id = ?', [pkg.admin_id]);
+                    if (admins.length > 0 && admins[0].billing_type === 'commission') {
+                        feeMs = tx.amount * 0.05;
                     }
+
                     await db.query('UPDATE transactions SET status = "success", fee = ? WHERE transaction_ref = ?', [feeMs, transaction_ref]);
 
-
-                    // 2. Get Available Voucher
+                    // Assign Voucher
                     const [availableVouchers] = await db.query('SELECT * FROM vouchers WHERE package_id = ? AND is_used = FALSE LIMIT 1', [tx.package_id]);
 
                     if (availableVouchers.length > 0) {
                         const voucher = availableVouchers[0];
                         await db.query('UPDATE vouchers SET is_used = TRUE WHERE id = ?', [voucher.id]);
-
-                        // 3. Deduct SMS Fee
                         await db.query('INSERT INTO sms_fees (admin_id, amount, type, description, status) VALUES (?, ?, "usage", ?, "success")',
                             [pkg.admin_id, -SMS_COST, `Voucher Sale: ${voucher.code}`]);
-
-                        // Store in Transactions
                         await db.query('UPDATE transactions SET voucher_code = ? WHERE transaction_ref = ?', [voucher.code, transaction_ref]);
 
+                        // Send SMS
                         const msg = `Payment Received! Your voucher code: ${voucher.code}. Valid for ${pkg.validity_hours} hrs.`;
-                        const smsSuccess = await sendSMS(tx.phone_number, msg, pkg.admin_id);
+                        await sendSMS(tx.phone_number, msg, pkg.admin_id);
 
-                        if (!smsSuccess) {
-                            console.warn(`[POLL] SMS Failed for ${transaction_ref}. Refunding Admin ${pkg.admin_id}.`);
-                            // REFUND LOGIC
-                            await db.query('INSERT INTO sms_fees (admin_id, amount, type, description, status) VALUES (?, ?, "refund", ?, "success")',
-                                [pkg.admin_id, SMS_COST, `Refund: SMS Failed (Ref: ${transaction_ref})`]);
-                        } else {
-                            console.log(`[POLL] SMS Sent & Billed for ${transaction_ref}`);
-                        }
-
-                        req.io.emit('data_update', { type: 'sms' }); // Notify Balance
-                        req.io.emit('data_update', { type: 'sms_logs' });
-
-                        // Email Notification
-                        try {
-                            const adminId = pkg.admin_id;
-                            const currentAdminBal = await getAdminBalance(adminId); // This is Revenue Balance, confusing name usage in original code
-                            const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [adminId]);
-                            if (adminRows.length > 0) {
-                                sendPaymentNotification(adminRows[0].email, tx.amount, tx.phone_number, transaction_ref, voucher.code, currentAdminBal, adminRows[0].username);
-
-                                // Low Balance Check
-                                const newBalance = balance - SMS_COST;
-                                if (newBalance <= 1000) {
-                                    sendLowSMSBalanceWarning(adminRows[0].email, newBalance, adminRows[0].username);
-                                }
-                            }
-                        } catch (emailErr) { console.error('Email Error:', emailErr); }
+                        req.io.emit('data_update', { type: 'vouchers' });
+                        req.io.emit('data_update', { type: 'payments' });
+                        req.io.emit('data_update', { type: 'sms' });
 
                         return res.json({ status: 'SUCCESS', voucher_code: voucher.code });
                     }
                 } else {
-                    console.warn(`[POLL] Insufficient SMS Balance (${balance}). Transaction NOT marked success.`);
+                    console.warn(`[POLL] Low SMS Balance: ${balance}`);
                     await db.query('UPDATE transactions SET status = "failed_low_sms" WHERE transaction_ref = ?', [transaction_ref]);
                     return res.json({ status: 'FAILED_LOW_SMS' });
                 }
             }
-            return res.json({ status: 'SUCCESS' }); // Fallback if no package? or logic error
-        } else if (status === 'FAILED') {
-            await db.query('UPDATE transactions SET status = "failed" WHERE transaction_ref = ?', [transaction_ref]);
-            return res.json({ status: 'FAILED' });
-        } else {
-            return res.json({ status: 'PENDING', remote_data: data });
         }
+
+        if (isFailed) {
+            console.log('[POLL] Gateway says FAILED');
+            if (isSMS) await db.query('UPDATE sms_fees SET status = "failed" WHERE reference = ?', [transaction_ref]);
+            else await db.query('UPDATE transactions SET status = "failed" WHERE transaction_ref = ?', [transaction_ref]);
+            return res.json({ status: 'FAILED' });
+        }
+
+        // Pending
+        return res.json({ status: 'PENDING' });
+
     } catch (err) {
         console.error('Polling Error:', err);
         res.status(500).json({ error: 'Error checking status' });
@@ -470,6 +490,7 @@ router.post('/admin/withdraw', authenticateToken, async (req, res) => {
         });
 
         const result = await response.json();
+        console.log(`[WITHDRAW] Relworx Response for ${reference}:`, JSON.stringify(result, null, 2));
 
         if (response.ok && (result.success === true || result.status === 'success')) {
             // 6. Success: Update Status

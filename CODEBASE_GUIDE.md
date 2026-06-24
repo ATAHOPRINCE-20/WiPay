@@ -30,13 +30,8 @@ This is where everything lives.
 
 ```text
 WIPAY/
-├── client/                  # [FRONTEND] All the visible parts
-│   ├── dashboard.html       # The MAIN APP (Admin Panel)
-│   ├── index.html           # Landing Page
-│   ├── login.html           # Login Page
-│   ├── css/                 # Stylesheets
-│   └── js/                  # Frontend Scripts
-│       └── config.js        # Global settings (API URL)
+├── wipay-frontend/          # [FRONTEND] React application (built to dist/)
+│   └── dist/              # Built static files served by server
 │
 ├── server/                  # [BACKEND] The Brain
 │   ├── server.js            # *** ENTRY POINT *** (Start here!)
@@ -45,7 +40,7 @@ WIPAY/
 │   │   ├── config/          # Configurations
 │   │   │   └── db.js        # Database Connection Setup
 │   │   ├── middleware/      # Security Guards
-│   │   │   └── authMiddleware.js # Checks "Are you logged in?"
+│   │   │   └── auth.js      # Checks "Are you logged in?"
 │   │   └── routes/          # API Instructions (The "Menu")
 │   │       ├── authRoutes.js    # Login/Register
 │   │       ├── adminRoutes.js   # Main Business Logic (Vouchers, Stats)
@@ -66,11 +61,6 @@ This file is the **Captain**. When you run `node server.js`, this happens:
 
 ### 3.2 The Database (MySQL)
 Your data is organized into **Tables**. Use `server/scripts/setup_multitenancy.js` to see the definitions.
-
-*   `admins`: The users who can log in. (Columns: `id`, `username`, `password_hash`).
-*   `vouchers`: The Wi-Fi access codes you sell. (Columns: `code`, `status`, `admin_id`).
-*   `transactions`: History of money moving.
-*   `sms_fees`: Your wallet for buying/spending SMS credits. **Crucial for your balance**.
 
 ### 3.3 The Routes (The Logic)
 Routes are functions that run when the Frontend asks for something.
@@ -134,4 +124,4 @@ You will see this function everywhere.
 
 ---
 **Ready to explore?**
-Open `server/server.js` to see the starting line, or `client/dashboard.html` to see the UI logic.
+Open `server/server.js` to see the starting line, or `wipay-frontend/` to see the React UI.

@@ -9,13 +9,12 @@
 The application follows a **Monolithic Client-Server Architecture**.
 
 ### 1.1 The Frontend (Client)
-*   **Technology**: Vanilla HTML, CSS, JavaScript.
-*   **Location**: `client/` folder.
+*   **Technology**: React (Vite).
+*   **Location**: `wipay-frontend/` folder.
 *   **Deployment**: `/var/www/wipay-client/`
 *   **Role**:
-    *   **`index.html`**: The Public Landing Page. Customers select packages and pay via Mobile Money.
-    *   **`dashboard.html`**: The Admin Interface. Admins manage vouchers, routers, view sales stats, and sell vouchers manually.
-    *   **`login.html`**: Authentication portal for Admins and Super Admins.
+    *   **Public Portal**: Customers select packages and pay via Mobile Money.
+    *   **Admin Interface**: Admins manage vouchers, routers, view sales stats.
 
 ### 1.2 The Backend (Server)
 *   **Technology**: Node.js (Express framework).
@@ -74,10 +73,8 @@ The application follows a **Monolithic Client-Server Architecture**.
 
 ```text
 WIPAY/
-├── client/                  # [Frontend]
-│   ├── dashboard.html       # Admin SPA
-│   ├── index.html           # Public Landing
-│   └── js/                  # Scripts
+├── wipay-frontend/          # [Frontend - React]
+│   └── dist/                # Built static files
 │
 ├── server/                  # [Backend]
 │   ├── server.js            # Entry Point (CORS, Rate Limiting)
