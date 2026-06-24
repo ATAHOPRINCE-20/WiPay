@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UGPAY</title>
+    <link rel="icon" type="image/png" href="img/favicon.png">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <img src="img/Wifi-Icon.png" alt="Wi-Fi" class="wifi-icon-img">
+            <h1>UGPAY</h1>
+            <p>Stay online, Stay informed</p>
+        </header>
+
+        <!-- Ads Section -->
+        <div id="ad-container" class="hidden" style="margin-bottom: 20px; text-align: center;">
+            <a id="ad-link" href="#" target="_blank">
+                <img id="ad-image" src="" alt="Advertisement" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            </a>
+        </div>
+
+        <!-- Top Section: Free Trial & Voucher -->
+        <div class="section-card free-trial">
+            <span>Free trial available</span>
+            <button class="trial-btn">click here</button>
+        </div>
+
+        <div class="section-card voucher-section">
+            <input type="text" id="voucherCode" placeholder="Enter voucher / Teekamu koodi">
+        </div>
+
+        <button id="voucherRedeemBtn" class="connect-btn">Connect</button>
+        <div style="text-align: center; margin-top: 15px;">
+            <a href="#" id="findVoucherBtn"
+                style="color: #ffffff; font-size: 0.9rem; text-decoration: none; border-bottom: 1px dashed #cccccc;">Find
+                my voucher</a>
+        </div>
+
+        <!-- Payment Methods -->
+        <div class="payment-methods">
+            <p>We Accept</p>
+            <div class="method-logos">
+                <span class="method-badge airtel">Airtel Money</span>
+                <span class="method-badge mtn">MTN MoMo</span>
+            </div>
+        </div>
+
+        <!-- Packages Grid -->
+        <div id="packages-container" class="packages-grid">
+            <div class="loading">Loading packages...</div>
+        </div>
+        <div id="no-admin-msg" class="hidden" style="text-align:center; padding: 20px; color: #666;">
+            <p>Packages are Currently Unavailable, Please Contact the Support for more information.</p>
+        </div>
+
+        <!-- Info Footer -->
+        <div class="info-footer">
+            
+            <strong>FOR INQUIRIES</strong>
+            <span id="inquiries-contact">Loading...</span><br>
+
+        </div>
+
+        <!-- Messages -->
+        <div id="statusMessage" class="status-message hidden"></div>
+    </div>
+
+    <!-- Payment Modal -->
+    <div id="paymentModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button id="closeModalBtn" class="close-modal-btn">&times;</button>
+            <h2>Confirm Purchase</h2>
+            <p id="modalPackageName">Package Name</p>
+
+            <div class="input-group">
+                <input type="tel" id="modalPhoneNumber" placeholder="Enter Phone Number (e.g., 07XX...)"
+                    pattern="[0-9]*">
+            </div>
+
+            <div class="modal-actions">
+                <button id="modalPayBtn" class="btn primary-btn"
+                    style="background: var(--primary-green); border: none; padding: 12px; color: white;">Pay
+                    Now</button>
+                <button id="modalCancelBtn" class="btn secondary-btn"
+                    style="color: #aaa; text-decoration: none;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Find Voucher Modal -->
+    <div id="findVoucherModal" class="modal-overlay hidden" style="z-index: 9000;">
+        <div class="modal-content">
+            <button id="closeFindModalBtn" class="close-modal-btn">&times;</button>
+            <h2>Find Voucher</h2>
+            <p>Enter the phone number used for payment.</p>
+            <div class="input-group">
+                <input type="tel" id="findPhoneInput" placeholder="e.g. 0770000000">
+            </div>
+            <div class="modal-actions">
+                <button id="findVoucherSearchBtn" class="btn primary-btn"
+                    style="background: var(--primary-green); color: white; border: none; padding: 12px; width: 100%;">Search</button>
+            </div>
+            <div id="foundVouchersList" style="margin-top: 15px; max-height: 200px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <script src="js/config.js?v=9999"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const packagesContainer = document.getElementById('packages-container');
+            const statusMessage = document.getElementById('statusMessage');
+
+            // Check for MikroTik Error (e.g. "invalid password")
+            const mtError = '$(error)';
+            if (mtError && mtError !== '$' + '(error)') {
+                showMessage(mtError, 'error');
+            }
+
+            // Voucher Elements
+            const voucherCodeInput = document.getElementById('voucherCode');
+            const voucherRedeemBtn = document.getElementById('voucherRedeemBtn');
+
+            // Modal Elements
+            const paymentModal = document.getElementById('paymentModal');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const modalPayBtn = document.getElementById('modalPayBtn');
+            const modalCancelBtn = document.getElementById('modalCancelBtn');
+            const modalPackageName = document.getElementById('modalPackageName');
+            const modalPrice = document.getElementById('modalPrice');
+
+            // --- CONFIGURATION FOR ROUTER DEPLOYMENT ---
+            // Change these values when installing on a specific router.
+            const ROUTER_ADMIN_ID = 56; 
+            const ROUTER_TENANT_TOKEN = "9096a96a4df9"; // NEW: Secure identifier
+            const ROUTER_ID = 7;
+
+            // --- URL PARAMETER DETECTION ---
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlAdminId = urlParams.get('admin');
+            const urlTenantToken = urlParams.get('t') || urlParams.get('tenant');
+            
+            const targetAdminId = urlAdminId || ROUTER_ADMIN_ID;
+            const targetTenantToken = urlTenantToken || ROUTER_TENANT_TOKEN;
+
+            // --- BRANDING LOGIC ---
+            async function fetchBranding() {
+                if (!targetTenantToken && !targetAdminId) return;
+
+                try {
+                    let url = `${CONFIG.API_BASE_URL}/branding`;
+                    if (targetTenantToken) url += `?tenant_token=${targetTenantToken}`;
+                    else url += `?admin_id=${targetAdminId}`;
+
+                    const res = await fetch(url);
+                    const data = await res.json();
+
+                    if (data.name) {
+                        document.title = data.name; 
+                        const headerH1 = document.querySelector('header h1');
+                        if (headerH1) headerH1.textContent = data.name; 
+
+                        const footer = document.querySelector('.info-footer');
+                        if (footer) {
+                            if (data.phone) {
+                                footer.innerHTML = `<strong>FOR INQUIRIES</strong>WhatsApp or call ${data.phone}`;
+                            } else {
+                                footer.innerHTML = `<strong>FOR INQUIRIES</strong>-`;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Branding Error:", e);
+                }
+            }
+            fetchBranding();
+
+            // --- ADS LOGIC ---
+            async function fetchAd() {
+                if (!targetTenantToken && !targetAdminId) return;
+                try {
+                    let url = `${CONFIG.API_BASE_URL}/ad`;
+                    if (targetTenantToken) url += `?tenant_token=${targetTenantToken}`;
+                    else url += `?admin_id=${targetAdminId}`;
+
+                    const res = await fetch(url);
+                    const ad = await res.json();
+                    if (ad && ad.image_url) {
+                        const adContainer = document.getElementById('ad-container');
+                        const adImage = document.getElementById('ad-image');
+                        const adLink = document.getElementById('ad-link');
+                        
+                        const baseUrl = CONFIG.API_BASE_URL.includes('/api') 
+                            ? CONFIG.API_BASE_URL.split('/api')[0] 
+                            : '';
+                        
+                        adImage.src = baseUrl + ad.image_url;
+                        if (ad.target_url) {
+                            adLink.href = ad.target_url;
+                        } else {
+                            adLink.removeAttribute('href');
+                            adLink.style.cursor = 'default';
+                        }
+                        adContainer.classList.remove('hidden');
+                    }
+                } catch (e) {
+                    console.error("Ad Fetch Error:", e);
+                }
+            }
+            fetchAd();
+
+            // --- FETCH PACKAGES ---
+            let fetchUrl = `${CONFIG.API_BASE_URL}/packages`;
+            if (targetTenantToken) fetchUrl += `?tenant_token=${targetTenantToken}`;
+            else if (targetAdminId) fetchUrl += `?admin_id=${targetAdminId}`;
+
+            console.log('Fetching Packages from:', fetchUrl);
+
+            fetch(fetchUrl)
+                .then(res => {
+                    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                    return res.json();
+                })
+                .then(packages => {
+                    console.log('Packages Loaded:', packages);
+                    const packagesContainer = document.getElementById('packages-container');
+                    packagesContainer.innerHTML = '';
+
+                    if (packages.length === 0) {
+                        document.getElementById('no-admin-msg').classList.remove('hidden');
+                        packagesContainer.style.display = 'none';
+                        return;
+                    }
+
+                    packages.forEach(pkg => {
+                        const row = document.createElement('div');
+                        row.className = 'package-row';
+
+                        // Reference Layout: Name - Price - Button
+                        row.innerHTML = `
+                            <div class="pkg-name">${pkg.name}</div>
+                            <div class="pkg-price">${Number(pkg.price).toLocaleString()}/=</div>
+                            <button class="pay-btn-ref" onclick="initiatePay('${pkg.id}', '${pkg.name}', ${pkg.price})">PAY</button>
+                        `;
+
+                        if (packagesContainer) packagesContainer.appendChild(row);
+                    });
+                })
+                .catch(err => {
+                    console.error('Package Load Error:', err);
+                    const packagesContainer = document.getElementById('packages-container');
+                    if (packagesContainer) packagesContainer.innerHTML = `<div class="error" style="color:red; text-align:center;">Failed to load packages.<br><small>${err.message}</small></div>`;
+                    showMessage('Failed to load packages: ' + err.message, 'error');
+                });
+
+            // ... (no change in global functions)
+            // Free Trial Logic
+            const trialBtn = document.querySelector('.trial-btn');
+            if (trialBtn) {
+                trialBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    // MikroTik Trial Login URL
+                    // Usually: $(link-login-only)?dst=$(link-orig-esc)&username=T-$(mac-esc)
+                    // Or simpler: submit form with no user/pass? No, usually specific link.
+                    // We will try the standard "login by link" method for trial.
+                    window.location.href = '$(link-login-only)?dst=$(link-orig-esc)&username=T-$(mac-esc)';
+                });
+            }
+
+            // Global function to be called from HTML onclick
+            window.initiatePay = function (id, name, price) {
+                selectedPackageId = id;
+                selectedPackagePrice = price;
+                modalPackageName.textContent = `${name} - ${Number(price).toLocaleString()} /=`;
+                modalPayBtn.textContent = `Pay ${Number(price).toLocaleString()} /= \n(Mobile Money)`;
+                paymentModal.classList.remove('hidden');
+                modalPhoneNumber.focus();
+            };
+
+            // Voucher Logic (MikroTik Login)
+            voucherRedeemBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const code = voucherCodeInput.value.trim();
+                if (!code) {
+                    showMessage('Please enter a voucher code', 'error');
+                    return;
+                }
+
+                // SUBMIT TO MIKROTIK (Standard POST)
+                const routerLoginUrl = '$(link-login-only)';
+
+                // Dynamic Fallback: Use current hostname (Gateway IP) if variable not replaced
+                let finalAction = routerLoginUrl;
+                if (routerLoginUrl.startsWith('$')) {
+                    // We are likely testing or variable didn't replace. Use current origin + /login
+                    finalAction = window.location.protocol + '//' + window.location.host + '/login';
+                }
+
+                console.log('Target Login URL:', finalAction);
+
+                voucherRedeemBtn.textContent = 'Connecting to ' + new URL(finalAction).host + '...';
+                voucherRedeemBtn.disabled = true;
+
+                try {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = finalAction;
+
+                    const userField = document.createElement('input');
+                    userField.type = 'hidden';
+                    userField.name = 'username';
+                    userField.value = code;
+                    form.appendChild(userField);
+
+                    const passField = document.createElement('input');
+                    passField.type = 'hidden';
+                    passField.name = 'password';
+                    passField.value = code;
+                    form.appendChild(passField);
+
+                    const dstField = document.createElement('input');
+                    dstField.type = 'hidden';
+                    dstField.name = 'dst';
+                    dstField.value = '$(link-orig)';
+                    form.appendChild(dstField);
+
+                    document.body.appendChild(form);
+                    form.submit();
+
+                } catch (err) {
+                    console.error('Login Form Error:', err);
+                    showMessage('Login Error: ' + err.message, 'error');
+                    voucherRedeemBtn.disabled = false;
+                    voucherRedeemBtn.textContent = 'Connect';
+                }
+            });
+
+
+            // Modal Logic
+            function closeModal() {
+                paymentModal.classList.add('hidden');
+                modalPayBtn.disabled = false;
+                modalPayBtn.textContent = 'Pay Now';
+                modalPhoneNumber.value = '';
+            }
+
+            closeModalBtn.addEventListener('click', closeModal);
+            modalCancelBtn.addEventListener('click', closeModal);
+
+            // Close on click outside
+            window.addEventListener('click', (e) => {
+                if (e.target === paymentModal) {
+                    closeModal();
+                }
+            });
+
+            // Pay Button Logic
+            modalPayBtn.addEventListener('click', async () => {
+                const phoneNumber = modalPhoneNumber.value.trim();
+                if (!phoneNumber) {
+                    showMessage('Please enter your phone number.', 'error');
+                    return;
+                }
+
+                modalPayBtn.disabled = true;
+                modalPayBtn.textContent = 'Processing...';
+
+                try {
+                    const purchaseRes = await fetch(`${CONFIG.API_BASE_URL}/purchase`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phone_number: phoneNumber,
+                            package_id: selectedPackageId,
+                            router_id: ROUTER_ID
+                        })
+                    });
+                    const purchaseData = await purchaseRes.json();
+
+                    if (purchaseData.transaction_id) {
+                        closeModal();
+                        showMessage(purchaseData.message, 'success');
+
+                        // Start Polling with Progress Bar
+                        startPolling(purchaseData.transaction_id, phoneNumber, selectedPackageId);
+                    } else {
+                        showMessage(purchaseData.error || 'Purchase failed', 'error');
+                        modalPayBtn.disabled = false;
+                        modalPayBtn.textContent = `Pay ${Number(selectedPackagePrice).toLocaleString()} /=`;
+                    }
+                } catch (err) {
+                    showMessage('Network error. Please try again.', 'error');
+                    modalPayBtn.disabled = false;
+                }
+            });
+
+
+            function startPolling(txRef, phone, pkgId) {
+                showProgress('Waiting for payment confirmation...');
+
+                let checkCount = 0;
+                const maxChecks = 60; // 5 mins total
+
+                const intervalId = setInterval(async () => {
+                    checkCount++;
+                    if (checkCount > maxChecks) {
+                        clearInterval(intervalId);
+                        hideProgress();
+                        showMessage('Payment timed out. Please check SMS.', 'error');
+                        return;
+                    }
+
+                    try {
+                        const res = await fetch(`${CONFIG.API_BASE_URL}/check-payment-status`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ transaction_ref: txRef })
+                        });
+                        const data = await res.json();
+
+                        if (data.status === 'SUCCESS') {
+                            clearInterval(intervalId);
+                            hideProgress();
+
+                            // Auto Login Logic
+                            if (data.voucher_code) {
+                                showMessage('Payment Successful! Auto-connecting...', 'success');
+                                document.getElementById('voucherCode').value = data.voucher_code;
+                                setTimeout(() => {
+                                    document.getElementById('voucherRedeemBtn').click();
+                                }, 1500); // Small delay to let user see success
+                            } else {
+                                showMessage('Payment Confirmed! Voucher sent via SMS.', 'success');
+                            }
+
+                            // Optional: Automatically connect?
+                            // checkConnection(phone);
+                        }
+                    } catch (e) {
+                        console.error('Polling error', e);
+                    }
+                }, 5000);
+            }
+
+            // --- UX Helpers ---
+
+            function showMessage(msg, type) {
+                // Remove existing
+                const existing = document.querySelectorAll('.popup-toast');
+                existing.forEach(el => el.remove());
+
+                const toast = document.createElement('div');
+                toast.className = 'popup-toast';
+
+                let icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'; // Info
+                let bg = '#333';
+                let border = '#333';
+
+                if (type === 'success') {
+                    bg = '#e8f5e9'; // Light Green
+                    border = '#4caf50';
+                    icon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${border}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+                } else if (type === 'error') {
+                    bg = '#ffebee'; // Light Red
+                    border = '#f44336';
+                    icon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${border}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+                }
+
+                toast.style.cssText = `
+                    display: flex; align-items: center; gap: 12px;
+                    position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-20px);
+                    z-index: 20000;
+                    background: white; color: #333;
+                    border-left: 5px solid ${border};
+                    padding: 14px 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+                    font-family: 'Inter', sans-serif;
+                    font-weight: 500; font-size: 0.95rem;
+                    opacity: 0; transition: all 0.4s ease;
+                    min-width: 300px;
+                `;
+
+                toast.innerHTML = `
+                    <div style="display:flex; align-items:center;">${icon}</div>
+                    <div>${msg}</div>
+                `;
+
+                document.body.appendChild(toast);
+
+                // Animate In
+                requestAnimationFrame(() => {
+                    toast.style.opacity = '1';
+                    toast.style.transform = 'translateX(-50%) translateY(0)';
+                });
+
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(-50%) translateY(-20px)';
+                    setTimeout(() => toast.remove(), 400);
+                }, 5000);
+            }
+            window.showMessage = showMessage;
+
+            function showProgress(text) {
+                let overlay = document.getElementById('progressOverlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.id = 'progressOverlay';
+                    overlay.className = 'payment-progress-overlay';
+                    overlay.innerHTML = `
+                        <div class="progress-container">
+                            <div class="progress-text" id="progressText">${text}</div>
+                            <div class="progress-bar-track">
+                                <div class="progress-bar-fill indeterminate"></div>
+                            </div>
+                            <div style="margin-top:15px; color:#aaa; font-size:0.9rem;">Please approve the prompt on your phone</div>
+                        </div>
+                    `;
+                    document.body.appendChild(overlay);
+                } else {
+                    document.getElementById('progressText').textContent = text;
+                    overlay.classList.remove('hidden');
+                }
+            }
+
+            function hideProgress() {
+                const overlay = document.getElementById('progressOverlay');
+                if (overlay) overlay.classList.add('hidden');
+            }
+
+            // --- Find Voucher Logic ---
+            const findVoucherBtn = document.getElementById('findVoucherBtn');
+            const findVoucherModal = document.getElementById('findVoucherModal');
+            const closeFindModalBtn = document.getElementById('closeFindModalBtn');
+            const findVoucherSearchBtn = document.getElementById('findVoucherSearchBtn');
+            const findPhoneInput = document.getElementById('findPhoneInput');
+            const foundVouchersList = document.getElementById('foundVouchersList');
+
+            if (findVoucherBtn) {
+                findVoucherBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    findVoucherModal.classList.remove('hidden');
+                    findPhoneInput.focus();
+                });
+            }
+
+            if (closeFindModalBtn) {
+                closeFindModalBtn.addEventListener('click', () => {
+                    findVoucherModal.classList.add('hidden');
+                    foundVouchersList.innerHTML = '';
+                    findPhoneInput.value = '';
+                });
+            }
+
+            // Search Action
+            if (findVoucherSearchBtn) {
+                findVoucherSearchBtn.addEventListener('click', async () => {
+                    const phone = findPhoneInput.value.trim();
+                    if (!phone) {
+                        showMessage('Please enter a phone number', 'error');
+                        return;
+                    }
+
+                    findVoucherSearchBtn.textContent = 'Searching...';
+                    findVoucherSearchBtn.disabled = true;
+                    foundVouchersList.innerHTML = '';
+
+                    try {
+                        const res = await fetch(`${CONFIG.API_BASE_URL}/recover-voucher`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                phone_number: phone, 
+                                admin_id: ROUTER_ADMIN_ID,
+                                tenant_token: targetTenantToken 
+                            })
+                        });
+                        const vouchers = await res.json();
+
+                        if (vouchers.length > 0) {
+                            vouchers.forEach(v => {
+                                const date = new Date(v.created_at).toLocaleString();
+                                const item = document.createElement('div');
+                                item.style.cssText = 'background:#f5f5f5; padding:10px; border-radius:8px; margin-bottom:8px; border-left:4px solid var(--primary-green);';
+                                item.innerHTML = `
+                                    <div style="font-weight:bold; color:#333; font-size:1.1rem; letter-spacing:1px;">${v.voucher_code}</div>
+                                    <div style="font-size:0.85rem; color:#666;">${v.package_name || 'Voucher'} - ${Number(v.amount).toLocaleString()} UGX</div>
+                                    <div style="font-size:0.75rem; color:#999;">${date}</div>
+                                    <button onclick="document.getElementById('voucherCode').value='${v.voucher_code}'; document.getElementById('findVoucherModal').classList.add('hidden');" 
+                                        style="margin-top:5px; padding:4px 8px; font-size:0.8rem; cursor:pointer;">Use</button>
+                                `;
+                                foundVouchersList.appendChild(item);
+                            });
+                        } else {
+                            foundVouchersList.innerHTML = '<div style="color:#666; text-align:center; padding:10px;">No vouchers found for this number recently.</div>';
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        showMessage('Search failed', 'error');
+                    } finally {
+                        findVoucherSearchBtn.textContent = 'Search';
+                        findVoucherSearchBtn.disabled = false;
+                    }
+                });
+            }
+
+            window.addEventListener('click', (e) => {
+                if (e.target === findVoucherModal) {
+                    findVoucherModal.classList.add('hidden');
+                }
+            });
+
+            // ... (rest of simple polling logic)
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UGPAY - Super Admin</title>
+    <link rel="icon" type="image/png" href="img/favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/super.css">
+</head>
+<script>
+    (function() {
+        const userStr = localStorage.getItem('wipay_user');
+        try {
+            if (userStr) {
+                const user = userStr.startsWith('{') ? JSON.parse(userStr) : { username: userStr, role: 'super_admin' };
+                if (user.role !== 'super_admin') {
+                    window.location.href = 'login_dashboard.html';
+                }
+            } else {
+                window.location.href = 'login_dashboard.html';
+            }
+        } catch (e) {
+            window.location.href = 'login_dashboard.html';
+        }
+    })();
+</script>
+
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="search-box">
+                <div style="color:white; font-weight:bold; padding: 10px;">SUPER ADMIN</div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">MANAGEMENT</div>
+                <ul>
+                    <li><a href="#" onclick="switchView('tenants'); return false;">Tenants</a></li>
+                    <li><a href="#" onclick="switchView('requests'); return false;">Requests</a></li>
+                    <li><a href="#" onclick="switchView('adsApproval'); return false;">Ad Approvals</a></li>
+                    <li><a href="#" onclick="switchView('resources'); return false;">Resources</a></li>
+                    <li><a href="#" onclick="switchView('stats'); return false;">System Stats</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- New Main Header -->
+            <header class="main-header">
+                <div class="header-left">
+                    <!-- Mobile Hamburger -->
+                    <div class="mobile-menu-btn hidden-desktop" onclick="toggleSidebar(); event.stopPropagation();">
+                        ☰
+                    </div>
+                    <img src="img/favicon.png" alt="UGPAY Logo" class="header-logo">
+                    <span class="brand-name">UGPAY Super</span>
+                </div>
+
+                <div class="header-right">
+                    <span id="welcomeMsg" style="text-transform: uppercase;">WELCOME, SUPER ADMIN</span>
+                    <a href="#" id="logoutLink">LOG OUT</a>
+                </div>
+            </header>
+
+            <!-- Tenants View -->
+            <div id="tenantsView" class="view-section">
+                <div class="content-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Tenants (Admins)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn-warning" onclick="openGlobalResetModal()">Reset Password</button>
+                        <button class="btn-success" onclick="openModal('addTenantModal')">+ Add Tenant</button>
+                    </div>
+                </div>
+                <div class="table-responsive table-scroll-view">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Wallet (UGX)</th>
+                                <th>SMS</th>
+                                <th>Billing</th>
+                                <th>Created At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tenantsTableBody">
+                            <!-- JS renders rows here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Resources View -->
+            <div id="resourcesView" class="view-section hidden">
+                <div class="content-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Resource Center (File Distribution)</h2>
+                    <button class="btn-success" onclick="openModal('uploadResourceModal')">+ Upload Resource</button>
+                </div>
+                <div class="table-responsive table-scroll-view">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Upload Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resourcesTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Stats View (Hidden by default) -->
+            <div id="statsView" class="view-section hidden">
+                <div class="content-header">
+                    <h2>System Statistics</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card purple">
+                        <div class="stat-value" id="total-tenants">0</div>
+                        <div class="stat-label">Total Tenants</div>
+                    </div>
+                    <div class="stat-card blue">
+                        <div class="stat-value" id="total-vouchers">0</div>
+                        <div class="stat-label">Total Vouchers</div>
+                    </div>
+                    <div class="stat-card green">
+                        <div class="stat-value" id="total-revenue">0</div>
+                        <div class="stat-label">Total Revenue (UGX)</div>
+                    </div>
+                    <div class="stat-card purple">
+                        <div class="stat-value" id="total-commission">0</div>
+                        <div class="stat-label">Total Commission (5%)</div>
+                    </div>
+                    <div class="stat-card orange">
+                        <div class="stat-value" id="total-subscriptions">0</div>
+                        <div class="stat-label">Total Subscriptions</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Registration Requests View -->
+            <div id="requestsView" class="view-section hidden">
+                <div class="content-header">
+                    <h2>Registration Requests (Leads)</h2>
+                </div>
+                <div class="table-responsive table-scroll-view">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Name</th>
+                                <th>Contact</th>
+                                <th>Hotspot/Address</th>
+                                <th>System/Method</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="requestsTableBody">
+                            <!-- JS renders rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Ad Approvals View -->
+            <div id="adsApprovalView" class="view-section hidden">
+                <div class="content-header">
+                    <h2>Pending Ad Approvals</h2>
+                </div>
+                <div class="table-responsive table-scroll-view">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Admin</th>
+                                <th>Preview</th>
+                                <th>Target Link</th>
+                                <th>Uploaded At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingAdsTableBody">
+                            <!-- JS renders rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Add Tenant Modal -->
+    <div id="addTenantModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Add New Tenant</h3>
+            <input type="text" id="newTenantUser" placeholder="Username"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="email" id="newTenantEmail" placeholder="Email Address (Optional)"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="text" id="newTenantBusiness" placeholder="Business Name (e.g. Garuga Coffee)"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="text" id="newTenantPhone" placeholder="Business Phone (Optional)"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="password" id="newTenantPass" placeholder="Password"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <div style="margin-bottom: 15px;">
+                <label style="color: white; font-size: 0.9em; display: block; margin-bottom: 5px;">Billing Type:</label>
+                <select id="newTenantBilling" style="width: 100%; padding: 10px;">
+                    <option value="commission">Commission (5% per sale)</option>
+                    <option value="subscription">Subscription (Fixed Monthly)</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button onclick="createTenant()" class="btn-success">Create Tenant</button>
+                <button onclick="closeModal('addTenantModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Resource Modal -->
+    <div id="uploadResourceModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Upload Resource</h3>
+            <input type="text" id="resTitle" placeholder="File Title (e.g., Update Script 2.0)"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="text" id="resDesc" placeholder="Description (Optional)"
+                style="width: 100%; padding: 10px; margin-bottom: 10px;">
+            <input type="file" id="resFile" style="margin-bottom: 20px;">
+            <div class="modal-actions">
+                <button onclick="uploadResource()" class="btn-success">Upload</button>
+                <button onclick="closeModal('uploadResourceModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Renew Subscription Modal -->
+    <div id="renewModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Renew Subscription</h3>
+            <p style="color:#aaa; font-size:0.9rem; margin-bottom:10px;">Set the new expiry date for this tenant.</p>
+            <input type="date" id="renewDate" style="width: 100%; padding: 10px; margin-bottom: 20px;">
+            <div class="modal-actions">
+                <button onclick="submitRenew()" class="btn-submit">Save Changes</button>
+                <button onclick="closeModal('renewModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+    </div>
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="customAlertModal" class="dashboard-modal hidden" style="z-index: 9999;">
+        <div class="alert-modal-content">
+            <h3 id="customAlertTitle" class="alert-title">Alert</h3>
+            <p id="customAlertMessage" class="alert-message">Message goes here.</p>
+            <div id="customAlertActions">
+                <button onclick="closeCustomAlert()" class="alert-btn success">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="customConfirmModal" class="dashboard-modal hidden" style="z-index: 9999;">
+        <div class="alert-modal-content">
+            <h3 id="customConfirmTitle" class="alert-title">Confirm</h3>
+            <p id="customConfirmMessage" class="alert-message">Are you sure?</p>
+            <div>
+                <button id="confirmCancelBtn" class="alert-btn cancel">Cancel</button>
+                <button id="confirmOkBtn" class="alert-btn success">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div id="resetPasswordModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Reset Tenant Password</h3>
+            <p style="color:#aaa; font-size:0.9rem; margin-bottom:10px;">Select a tenant and enter a new password.</p>
+
+            <label style="color: white; font-size: 0.9em; display: block; margin-bottom: 5px;">Select Tenant:</label>
+            <select id="resetTenantSelect" style="width: 100%; padding: 10px; margin-bottom: 15px;">
+                <!-- Populated by JS -->
+            </select>
+
+            <input type="password" id="resetNewPass" placeholder="New Password"
+                style="width: 100%; padding: 10px; margin-bottom: 20px;">
+
+            <div class="modal-actions">
+                <button onclick="submitResetPassword()" class="btn-warning">Reset Password</button>
+                <button onclick="closeModal('resetPasswordModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tenant Details Modal -->
+    <div id="tenantDetailsModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content" style="max-width: 600px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 id="detailsTitle" style="margin:0;">Tenant Details</h3>
+                <button onclick="closeModal('tenantDetailsModal')"
+                    style="background:none; border:none; color:#666; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+
+            <div id="detailsBody">
+                <!-- Populated by JS -->
+            </div>
+
+            <div class="modal-actions" style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;" id="detailsFooter">
+                <button onclick="closeModal('tenantDetailsModal')" class="btn-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Tenant Modal -->
+    <div id="editTenantModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Edit Tenant</h3>
+            <input type="hidden" id="editTenantId">
+            <div style="margin-bottom:10px;">
+                <label style="color:#aaa; font-size:0.8rem;">Username (Read Only)</label>
+                <input type="text" id="editTenantUser" disabled
+                    style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); color: #aaa; border: 1px solid #333;">
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="color:white; font-size:0.8rem;">Business Name</label>
+                <input type="text" id="editTenantBusiness" placeholder="Business Name"
+                    style="width: 100%; padding: 10px;">
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="color:white; font-size:0.8rem;">Phone</label>
+                <input type="text" id="editTenantPhone" placeholder="Business Phone"
+                    style="width: 100%; padding: 10px;">
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="color:white; font-size:0.8rem;">Email</label>
+                <input type="email" id="editTenantEmail" placeholder="Email" style="width: 100%; padding: 10px;">
+            </div>
+            <div style="margin-bottom:15px;">
+                <label style="color:white; font-size:0.8rem;">Billing Type</label>
+                <select id="editTenantBilling" style="width: 100%; padding: 10px;">
+                    <option value="commission">Commission (5% per sale)</option>
+                    <option value="subscription">Subscription (Fixed Monthly)</option>
+                </select>
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="submitEditTenant()" class="btn-submit">Save Changes</button>
+                <button onclick="closeModal('editTenantModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Router Modal (Super Admin) -->
+    <div id="superEditRouterModal" class="dashboard-modal hidden">
+        <div class="dashboard-modal-content">
+            <h3>Edit Router Credentials</h3>
+            <input type="hidden" id="superEditRouterId">
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label style="color:white; font-size:0.8rem;">Router Name</label>
+                <input type="text" id="superEditRouterName" style="width: 100%; padding: 10px;">
+            </div>
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label style="color:white; font-size:0.8rem;">Mikhmon URL</label>
+                <input type="text" id="superEditRouterUrl" style="width: 100%; padding: 10px;">
+            </div>
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+                <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials</h4>
+                <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <label style="color:white; font-size:0.8rem;">API User</label>
+                        <input type="text" id="superEditRouterApiUser" style="width: 100%; padding: 10px;">
+                    </div>
+                    <div>
+                        <label style="color:white; font-size:0.8rem;">API Pass</label>
+                        <input type="password" id="superEditRouterApiPass" placeholder="Leave empty for no change" style="width: 100%; padding: 10px;">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label style="color:white; font-size:0.8rem;">API Port</label>
+                    <input type="number" id="superEditRouterApiPort" style="width: 100%; padding: 10px;">
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button onclick="submitSuperEditRouter()" class="btn-submit">Update Router</button>
+                <button onclick="closeModal('superEditRouterModal')" class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script>
+        // Existing Scripts...
+        // [MODIFIED: Added router management functions]
+        function openSuperEditRouterModal(id, name, url, api_user, api_pass, api_port) {
+            document.getElementById('superEditRouterId').value = id;
+            document.getElementById('superEditRouterName').value = name;
+            document.getElementById('superEditRouterUrl').value = url;
+            document.getElementById('superEditRouterApiUser').value = api_user === 'null' ? '' : api_user;
+            document.getElementById('superEditRouterApiPass').value = ''; 
+            document.getElementById('superEditRouterApiPort').value = api_port || 8728;
+            openModal('superEditRouterModal');
+        }
+
+        async function submitSuperEditRouter() {
+            const id = document.getElementById('superEditRouterId').value;
+            const name = document.getElementById('superEditRouterName').value;
+            const url = document.getElementById('superEditRouterUrl').value;
+            const api_user = document.getElementById('superEditRouterApiUser').value;
+            const api_pass = document.getElementById('superEditRouterApiPass').value;
+            const api_port = document.getElementById('superEditRouterApiPort').value;
+
+            if (!name || !url) return showAlert('Name and URL required', 'error');
+
+            try {
+                const res = await fetchAuth(`/api/super/routers/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, mikhmon_url: url, api_user, api_pass, api_port })
+                });
+
+                if (res.ok) {
+                    showAlert('Router updated successfully', 'success');
+                    closeModal('superEditRouterModal');
+                    fetchTenants(); // Refresh data
+                    // Re-open details modal with updated info if possible, or just let user re-click
+                    closeModal('tenantDetailsModal'); 
+                } else {
+                    const d = await res.json();
+                    showAlert(d.error || 'Update failed', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Error updating router', 'error');
+            }
+        }
+        // --- Security / Utilities ---
+        function escapeHtml(text) {
+            if (!text) return text;
+            return text
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+        // --- Custom Alert/Confirm Logic ---
+        function showAlert(message, type = 'success') {
+            const modal = document.getElementById('customAlertModal');
+            const title = document.getElementById('customAlertTitle');
+            const msg = document.getElementById('customAlertMessage');
+            const btn = modal.querySelector('button');
+
+            title.textContent = type === 'success' ? 'Success' : 'Error';
+            title.style.color = type === 'success' ? '#4caf50' : '#f44336';
+            msg.textContent = message;
+
+            btn.className = `alert-btn ${type}`;
+            btn.onclick = () => modal.classList.add('hidden');
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeCustomAlert() {
+            document.getElementById('customAlertModal').classList.add('hidden');
+        }
+
+        function showConfirm(message, callback) {
+            const modal = document.getElementById('customConfirmModal');
+            const msg = document.getElementById('customConfirmMessage');
+            const okBtn = document.getElementById('confirmOkBtn');
+            const cancelBtn = document.getElementById('confirmCancelBtn');
+
+            msg.textContent = message;
+
+            // Remove old listeners to prevent stacking
+            const newOk = okBtn.cloneNode(true);
+            const newCancel = cancelBtn.cloneNode(true);
+            okBtn.parentNode.replaceChild(newOk, okBtn);
+            cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+
+            newOk.onclick = () => {
+                modal.classList.add('hidden');
+                if (callback) callback(true);
+            };
+
+            newCancel.onclick = () => {
+                modal.classList.add('hidden');
+                // if (callback) callback(false); // Optional
+            };
+
+            modal.classList.remove('hidden');
+        }
+
+
+        // --- Auth Helper ---
+        async function fetchAuth(url, options = {}) {
+            // Cookie-based Auth
+            options.credentials = 'include';
+
+            const headers = { 'Content-Type': 'application/json', ...options.headers };
+            
+            // Add Authorization header from localStorage if available
+            const token = localStorage.getItem('wipay_token');
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            // Handle URL: if it starts with /api, replace with full URL
+            let fullUrl = url;
+            if (url.startsWith('/api') && typeof CONFIG !== 'undefined' && CONFIG.API_BASE_URL) {
+                fullUrl = url.replace('/api', CONFIG.API_BASE_URL);
+            }
+
+            try {
+                const res = await fetch(fullUrl, { ...options, headers });
+
+                if (res.status === 401 || res.status === 403) {
+                    // Session Expired
+                    if (!window.location.href.includes('login_dashboard.html')) {
+                        window.location.href = 'login_dashboard.html';
+                    }
+                    return Promise.reject('Unauthorized');
+                }
+                return res;
+            } catch (err) {
+                console.error('FetchAuth Error', err);
+                throw err;
+            }
+        }
+
+        // --- Logout ---
+        document.getElementById('logoutLink').onclick = async (e) => {
+            e.preventDefault();
+            try {
+                // Correct logout path is /api/logout
+                await fetchAuth('/api/logout', { method: 'POST' });
+            } catch (e) { console.error('Logout failed', e); }
+
+            localStorage.removeItem('wipay_user');
+            localStorage.removeItem('wipay_role');
+            localStorage.removeItem('wipay_token');
+            window.location.href = 'login_dashboard.html';
+        };
+
+        // --- Views ---
+        function switchView(view) {
+            document.getElementById('tenantsView').classList.add('hidden');
+            document.getElementById('statsView').classList.add('hidden');
+            document.getElementById('resourcesView').classList.add('hidden');
+            document.getElementById('requestsView').classList.add('hidden');
+            document.getElementById('adsApprovalView').classList.add('hidden');
+
+            document.getElementById(view + 'View').classList.remove('hidden');
+
+            if (view === 'tenants') fetchTenants();
+            if (view === 'resources') fetchResources();
+            if (view === 'stats') fetchStats();
+            if (view === 'requests') fetchRegistrationRequests();
+            if (view === 'adsApproval') fetchPendingAds();
+        }
+
+        // --- Registration Requests Logic ---
+        async function fetchRegistrationRequests() {
+            try {
+                const res = await fetchAuth('/api/super/registration-requests');
+                const data = await res.json();
+                const tbody = document.getElementById('requestsTableBody');
+                tbody.innerHTML = '';
+
+                // Filter out 'approved' / 'rejected'? Or show all?
+                // Let's only show 'pending_otp' (maybe), 'pending_approval'.
+                // Ideally, user only cares about 'pending_approval'.
+                const pending = data.filter(r => r.status === 'pending_approval' || r.status === 'pending_otp');
+
+                if (pending.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No pending requests.</td></tr>';
+                    return;
+                }
+
+                pending.forEach(r => {
+                    let statusBadge = '';
+                    if (r.status === 'pending_otp') statusBadge = '<span class="badge bg-secondary">Pending OTP</span>';
+                    if (r.status === 'pending_approval') statusBadge = '<span class="badge bg-primary">Pending Approval</span>';
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${new Date(r.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <strong>${escapeHtml(r.first_name)} ${escapeHtml(r.last_name)}</strong><br>
+                                <small style="color:#aaa">${escapeHtml(r.email)}</small>
+                            </td>
+                            <td>
+                                <div><i class="fas fa-phone"></i> ${escapeHtml(r.phone_number)}</div>
+                                <div style="color:#25D366"><i class="fab fa-whatsapp"></i> ${escapeHtml(r.whatsapp_number)}</div>
+                            </td>
+                            <td>
+                                <strong>${escapeHtml(r.hotspot_name)}</strong><br>
+                                <small style="color:#aaa">${escapeHtml(r.address || '-')}</small>
+                            </td>
+                            <td>
+                                <div class="badge bg-primary" style="margin-bottom:5px;">${escapeHtml(r.system_usage)}</div>
+                                <div style="font-size:0.8rem; color:#888;">${escapeHtml(r.login_method)}</div>
+                                <div style="margin-top:5px;">${statusBadge}</div>
+                            </td>
+                            <td>
+                                <div class="actions-cell">
+                                    ${r.status === 'pending_approval' 
+                                        ? `<button class="btn-success btn-sm" onclick="approveRequest(${r.id}, '${escapeHtml(r.first_name)} ${escapeHtml(r.last_name)}', '${escapeHtml(r.email)}', '${escapeHtml(r.phone_number)}', '${escapeHtml(r.hotspot_name)}')">Approve</button>`
+                                        : '<span style="color:#666; font-size:0.8rem;">Verifying OTP...</span>'
+                                    }
+                                    <button class="btn-cancel btn-sm" onclick="rejectRequest(${r.id})">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function approveRequest(id, name, email, phone, business) {
+            showConfirm(`Approve ${name}? This will send them an email and let you create their account.`, async () => {
+                try {
+                    // 1. Mark as Approved in DB & Send Email
+                    const btn = document.querySelector(`button[onclick^="approveRequest(${id}"]`);
+                    if(btn) btn.innerText = 'Processing...';
+
+                    const res = await fetchAuth(`/api/super/registration-requests/${id}/approve`, { method: 'POST' });
+                    
+                    if (res.ok) {
+                        showAlert('Approved! Now create the tenant account.', 'success');
+                        
+                        // 2. Open Add Tenant Modal Prefilled
+                        document.getElementById('newTenantUser').value = name.replace(/\s+/g, '').toLowerCase() + Math.floor(Math.random() * 100);
+                        document.getElementById('newTenantEmail').value = email;
+                        document.getElementById('newTenantBusiness').value = business;
+                        document.getElementById('newTenantPhone').value = phone;
+                        
+                        fetchRegistrationRequests(); // Refresh list to remove it
+                        openModal('addTenantModal');
+                    } else {
+                        showAlert('Failed to approve.', 'error');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        async function rejectRequest(id) {
+            showConfirm('Are you sure you want to reject/delete this lead?', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/registration-requests/${id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        fetchRegistrationRequests();
+                        showAlert('Lead removed.', 'success');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        // --- Ad Approval Logic ---
+        async function fetchPendingAds() {
+            try {
+                const res = await fetchAuth('/api/super/ads/pending');
+                const data = await res.json();
+                const tbody = document.getElementById('pendingAdsTableBody');
+                tbody.innerHTML = '';
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#aaa;">No pending ads found.</td></tr>';
+                    return;
+                }
+
+                data.forEach(ad => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${escapeHtml(ad.admin_username)}</strong> (ID: ${ad.admin_id})</td>
+                            <td>
+                                <a href="${ad.image_url}" target="_blank">
+                                    <img src="${ad.image_url}" style="height: 40px; border-radius: 4px; border: 1px solid #333;" alt="Ad Preview">
+                                </a>
+                            </td>
+                            <td><span style="font-size:0.85rem; color:#888;">${escapeHtml(ad.target_url || '-')}</span></td>
+                            <td>${new Date(ad.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <div style="display: flex; gap: 8px;">
+                                    <button class="btn-success btn-sm" onclick="approveAd(${ad.id})">Approve</button>
+                                    <button class="btn-cancel btn-sm" onclick="rejectAd(${ad.id})">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function approveAd(id) {
+            showConfirm('Approve this ad for display?', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/ads/${id}/approve`, { method: 'POST' });
+                    if (res.ok) {
+                        showAlert('Ad approved!', 'success');
+                        fetchPendingAds();
+                    } else {
+                        showAlert('Failed to approve', 'error');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        async function rejectAd(id) {
+            showConfirm('Reject this ad? it will not be displayed.', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/ads/${id}/reject`, { method: 'POST' });
+                    if (res.ok) {
+                        showAlert('Ad rejected', 'success');
+                        fetchPendingAds();
+                    } else {
+                        showAlert('Failed to reject', 'error');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        // --- Resource Logic ---
+        async function fetchResources() {
+            try {
+                const res = await fetchAuth('/api/super/resources');
+                const data = await res.json();
+                const tbody = document.getElementById('resourcesTableBody');
+                tbody.innerHTML = '';
+
+                data.forEach(item => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>
+                                <a href="${item.file_path}" target="_blank" style="color:white; font-weight:bold; text-decoration:none;">
+                                    ${escapeHtml(item.title)} <span style="font-size:0.8rem;">⬇</span>
+                                </a>
+                            </td>
+                            <td>${escapeHtml(item.description || '-')}</td>
+                            <td>${new Date(item.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <button class="btn-cancel btn-sm" onclick="deleteResource(${item.id})">Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function uploadResource() {
+            const title = document.getElementById('resTitle').value;
+            const desc = document.getElementById('resDesc').value;
+            const fileInput = document.getElementById('resFile');
+
+            if (!title || fileInput.files.length === 0) return showAlert('Title and File needed', 'error');
+
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('description', desc);
+            formData.append('file', fileInput.files[0]);
+
+            const btn = document.querySelector('#uploadResourceModal .btn-success');
+            const originalText = btn.textContent;
+            btn.textContent = 'Uploading...';
+            btn.disabled = true;
+
+            try {
+                // Must use plain fetch for FormData to let browser set Content-Type boundary
+                const res = await fetch('/api/super/resources', {
+                    method: 'POST',
+                    body: formData,
+                    // Typically fetchAuth adds JSON headers which breaks multipart. 
+                    // We need to replicate fetchAuth auth check or just rely on cookie.
+                    // Since credentials='include' is default for manual fetch if we set it.
+                });
+                // Wait, super admin uses headers or cookies? fetchAuth uses cookies (credentials:include).
+                // Let's manually do it to avoid fetchAuth defaults (which sets Content-Type: application/json)
+                const res2 = await fetch('/api/super/resources', {
+                    method: 'POST',
+                    body: formData,
+                    // Do NOT set Content-Type header
+                });
+
+                if (res2.ok) {
+                    showAlert('Uploaded!', 'success');
+                    closeModal('uploadResourceModal');
+                    fetchResources();
+                } else {
+                    showAlert('Upload Failed', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Error', 'error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteResource(id) {
+            showConfirm('Delete this file?', async () => {
+                await fetchAuth(`/api/super/resources/${id}`, { method: 'DELETE' });
+                fetchResources();
+            });
+        }
+
+        // --- Tenant Logic ---
+        let allTenants = []; // Store fetched tenants
+
+        async function fetchTenants() {
+            try {
+                const res = await fetchAuth('/api/super/tenants');
+                allTenants = await res.json();
+                renderTenantsTable();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderTenantsTable() {
+            const tbody = document.getElementById('tenantsTableBody');
+            tbody.innerHTML = '';
+
+            allTenants.forEach(t => {
+                const isActive = t.last_active_at && (new Date() - new Date(t.last_active_at) < 5 * 60 * 1000); // 5 mins
+                const statusHtml = isActive
+                    ? `<span style="display:inline-block; width:10px; height:10px; background:#4caf50; border-radius:50%; margin-right:5px; margin-left:5px;" title="Online"></span>`
+                    : `<div style="font-size:0.75rem; color:#888; margin-top:2px;">Last seen: ${t.last_active_at ? new Date(t.last_active_at).toLocaleString() : 'Never'}</div>`;
+
+                tbody.innerHTML += `
+                        <tr>
+                            <td>${t.id}</td>
+                            <td>
+                                ${escapeHtml(t.username)}
+                                ${isActive ? statusHtml : ''}
+                                ${!isActive ? statusHtml : ''}
+                            </td>
+                            <td style="font-weight: bold; color: #4caf50;">
+                                ${Number(t.total_balance).toLocaleString()}
+                            </td>
+                            <td style="color: ${t.sms_balance < 500 ? '#f44336' : '#fff'};">
+                                ${Number(t.sms_balance).toLocaleString()}
+                            </td>
+                            <td>
+                                <div>${t.billing_type || 'commission'}</div>
+                                ${t.billing_type === 'subscription'
+                        ? `<small style="color:${getExpiryColor(t.subscription_expiry)}">${formatExpiry(t.subscription_expiry)}</small>`
+                        : ''}
+                            </td>
+                            <td>${new Date(t.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <div class="actions-cell">
+                                    <button class="btn-submit btn-sm" onclick="openTenantDetails(${t.id})">Details</button>
+                                    ${t.role !== 'super_admin' ? `<button class="btn-cancel btn-sm" onclick="deleteTenant(${t.id})">Del</button>` : ''}
+                                    ${t.billing_type === 'subscription' ? `<button class="btn-submit btn-sm" onclick="openRenewModal(${t.id}, '${t.subscription_expiry || ''}')">Renew</button>` : ''}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+            });
+        }
+
+        function openTenantDetails(id) {
+            const tenant = allTenants.find(t => t.id === id);
+            if (!tenant) return;
+
+            const title = document.getElementById('detailsTitle');
+            const body = document.getElementById('detailsBody');
+            const footer = document.getElementById('detailsFooter');
+
+            title.textContent = `Details for ${tenant.username}`;
+
+            let routersHtml = '';
+            if (tenant.routers && tenant.routers.length > 0) {
+                routersHtml = `
+                    <table class="data-table" style="margin-top:10px; font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Router ID</th>
+                                <th>Name</th>
+                                <th>Mikhmon Link</th>
+                                <th>API User</th>
+                                <th>API Port</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tenant.routers.map(r => {
+                                const safeName = escapeHtml(r.name || '').replace(/'/g, "\\'");
+                                const safeUrl = escapeHtml(r.mikhmon_url || '').replace(/'/g, "\\'");
+                                const safeUser = escapeHtml(r.api_user || '').replace(/'/g, "\\'");
+                                const safePass = escapeHtml(r.api_pass || '').replace(/'/g, "\\'");
+                                const safePort = r.api_port || 8728;
+                                
+                                return `
+                                <tr>
+                                    <td>#${r.id}</td>
+                                    <td>${escapeHtml(r.name)}</td>
+                                    <td><a href="${safeUrl}" target="_blank" style="color: var(--primary-color);">Open Link</a></td>
+                                    <td style="font-family: monospace; font-size: 0.8rem;">${r.api_user || '<em style="color:#555">None</em>'}</td>
+                                    <td style="font-family: monospace;">${r.api_port || 8728}</td>
+                                    <td>
+                                        <button class="btn-success btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" 
+                                            onclick="openSuperEditRouterModal(${r.id}, '${safeName}', '${safeUrl}', '${safeUser}', '${safePass}', ${safePort})">
+                                            Edit API
+                                        </button>
+                                    </td>
+                                </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                routersHtml = '<p style="color:#888; font-style:italic;">No routers registered for this tenant.</p>';
+            }
+
+            body.innerHTML = `
+                <div style="background: #222; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333;">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="color:#666; font-size:0.75rem; display:block;">ADMIN ID</label>
+                            <span style="font-weight:bold; color: #fff;">${tenant.id}</span>
+                        </div>
+                        <div>
+                            <label style="color:#666; font-size:0.75rem; display:block;">BUSINESS NAME</label>
+                            <span style="font-weight:bold; color: #fff;">${escapeHtml(tenant.business_name || 'UGPAY')}</span>
+                        </div>
+                        <div>
+                            <label style="color:#666; font-size:0.75rem; display:block;">EMAIL</label>
+                            <span style="font-weight:bold; color: #fff;">${escapeHtml(tenant.email || 'N/A')}</span>
+                        </div>
+                        <div>
+                            <label style="color:#666; font-size:0.75rem; display:block;">PHONE</label>
+                            <span style="font-weight:bold; color: #fff;">${escapeHtml(tenant.business_phone || 'N/A')}</span>
+                        </div>
+                        <div style="grid-column: span 2; background: rgba(76, 175, 80, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(76, 175, 80, 0.3); margin-top: 5px;">
+                            <label style="color:#4caf50; font-size:0.75rem; display:block; font-weight: bold;">TENANT TOKEN (ROUTER_TENANT_TOKEN)</label>
+                            <span style="font-family: monospace; font-size: 1.1rem; color: #4caf50; letter-spacing: 1px; font-weight: bold;">${tenant.tenant_token || 'N/A'}</span>
+                            <small style="display: block; color: #888; font-size: 0.7rem; margin-top: 4px;">Use this in login.html config for this tenant's routers.</small>
+                        </div>
+                        <div style="grid-column: span 2; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                            <label style="color:#666; font-size:0.75rem; display:block;">ISOLATED MIKHMON DIR (FOR NEW ROUTERS)</label>
+                            <a href="https://ugpay.tech/mikhmon/${tenant.username.replace(/\s+/g, '_')}/" target="_blank" style="color:var(--primary-color); font-weight:bold;">https://ugpay.tech/mikhmon/${tenant.username.replace(/\s+/g, '_')}/</a>
+                        </div>
+                        <div style="grid-column: span 2; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                            <label style="color:#ff9800; font-size:0.75rem; display:block; font-weight: bold; margin-bottom: 5px;">WIREGUARD VPN SETTINGS (FOR MIKROTIK)</label>
+                            ${tenant.vpn_ip ? `
+                                <div style="background: #111; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 0.85rem; border: 1px solid #444;">
+                                    <div style="margin-bottom: 5px;"><span style="color: #888;">VPN IP:</span> <span style="color: #4caf50;">${tenant.vpn_ip}</span></div>
+                                    <div style="margin-bottom: 5px;"><span style="color: #888;">Private Key:</span> <small style="color: #eee; word-break: break-all;">${tenant.vpn_private_key}</small></div>
+                                    <div style="margin-bottom: 5px;"><span style="color: #888;">Public Key:</span> <small style="color: #eee; word-break: break-all;">${tenant.vpn_public_key}</small></div>
+                                    <div style="margin-bottom: 5px;"><span style="color: #888;">Server Public Key:</span> <small style="color: #eee; word-break: break-all;">${tenant.vpn_server_pub}</small></div>
+                                    <div><span style="color: #888;">Endpoint:</span> <span style="color: #3b82f6;">${tenant.vpn_endpoint}:51820</span></div>
+                                </div>
+                            ` : `<span style="color: #f44336; font-size: 0.85rem;">No VPN created for this tenant yet.</span>`}
+                        </div>
+                    </div>
+                </div>
+                <h4 style="margin-bottom:10px;">Registered Routers</h4>
+                ${routersHtml}
+                <div style="margin-top:20px; padding:15px; background: #332100; color: #ff9800; border-radius: 6px; font-size: 0.85rem; border: 1px solid #553300;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span><i class="fas fa-info-circle"></i> Use these IDs when configuring the <code>login.html</code> for this tenant's routers.</span>
+                        <button class="btn-success btn-sm" style="background:#ff9800; border:none;" onclick="generateVPN(${tenant.id})">Generate / Refresh VPN</button>
+                    </div>
+                </div>
+            `;
+
+            // Update Footer with Edit Button
+            footer.innerHTML = `
+                <button class="btn-warning" style="margin-right: auto;" onclick="openEditModal(${tenant.id}, '${escapeHtml(tenant.username)}', '${escapeHtml(tenant.email || '')}', '${escapeHtml(tenant.business_name || '')}', '${escapeHtml(tenant.business_phone || '')}', '${tenant.billing_type || 'commission'}')">Edit Tenant</button>
+                <button onclick="closeModal('tenantDetailsModal')" class="btn-cancel">Close</button>
+            `;
+
+            openModal('tenantDetailsModal');
+        }
+
+        async function createTenant() {
+            const username = document.getElementById('newTenantUser').value;
+            const password = document.getElementById('newTenantPass').value;
+            const billing = document.getElementById('newTenantBilling').value;
+            const email = document.getElementById('newTenantEmail').value;
+            const business_name = document.getElementById('newTenantBusiness').value;
+            const business_phone = document.getElementById('newTenantPhone').value;
+
+            // Fix: Prevent Double Click
+            const btn = document.querySelector('#addTenantModal .btn-success');
+
+            if (!username || !password) return showAlert('Fill all fields', 'error');
+
+            const originalText = btn.textContent;
+            btn.textContent = 'Processing...';
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+
+            try {
+                const res = await fetchAuth('/api/super/tenants', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, password, billing_type: billing, email, business_name, business_phone })
+                });
+
+                if (res.ok) {
+                    showAlert('Tenant Created', 'success');
+                    closeModal('addTenantModal');
+                    fetchTenants();
+                    // Clear fields
+                    document.getElementById('newTenantUser').value = '';
+                    document.getElementById('newTenantPass').value = '';
+                    document.getElementById('newTenantEmail').value = '';
+                } else {
+                    const data = await res.json();
+                    showAlert(data.error || 'Failed', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Network Error', 'error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        }
+
+        async function deleteTenant(id) {
+            showConfirm('Are you sure you want to delete this tenant?', async () => {
+                try {
+                    const res = await fetchAuth(`/api/super/tenants/${id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        fetchTenants();
+                        showAlert('Tenant deleted successfully', 'success');
+                    } else {
+                        showAlert('Failed to delete', 'error');
+                    }
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        async function fetchStats() {
+            try {
+                const res = await fetchAuth('/api/super/stats');
+                const data = await res.json();
+                document.getElementById('total-tenants').textContent = data.tenantCount;
+                document.getElementById('total-vouchers').textContent = data.totalVouchers;
+                document.getElementById('total-revenue').textContent = Number(data.totalRevenue).toLocaleString();
+                document.getElementById('total-commission').textContent = Number(data.totalCommission).toLocaleString();
+                document.getElementById('total-subscriptions').textContent = Number(data.totalSubscriptions || 0).toLocaleString();
+            } catch (e) { console.error(e); }
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        // Start
+        fetchTenants();
+
+        function getExpiryColor(dateStr) {
+            if (!dateStr) return '#aaa';
+            const diff = new Date(dateStr) - new Date();
+            if (diff < 0) return '#f44336'; // Expired
+            if (diff < 1000 * 60 * 60 * 24 * 3) return '#ff9800'; // Warning
+            return '#4caf50';
+        }
+
+        function formatExpiry(dateStr) {
+            if (!dateStr) return 'Not Set';
+            return new Date(dateStr).toLocaleDateString();
+        }
+
+        let currentRenewId = null;
+        function openRenewModal(id, currentExpiry) {
+            currentRenewId = id;
+            document.getElementById('renewDate').value = currentExpiry ? currentExpiry.split('T')[0] : '';
+            openModal('renewModal');
+        }
+
+        async function submitRenew() {
+            const date = document.getElementById('renewDate').value;
+            if (!date) return showAlert('Select a date', 'error');
+
+            try {
+                const res = await fetchAuth(`/api/super/tenants/${currentRenewId}/subscription`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ expiry_date: date })
+                });
+                if (res.ok) {
+                    showAlert('Subscription Updated', 'success');
+                    closeModal('renewModal');
+                    fetchTenants();
+                } else {
+                    showAlert('Failed to update', 'error');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // --- Edit Tenant Logic ---
+        function openEditModal(id, username, email, businessName, businessPhone, billingType) {
+            document.getElementById('editTenantId').value = id;
+            document.getElementById('editTenantUser').value = username;
+            document.getElementById('editTenantEmail').value = email;
+            document.getElementById('editTenantBusiness').value = businessName;
+            document.getElementById('editTenantPhone').value = businessPhone;
+            document.getElementById('editTenantBilling').value = billingType || 'commission';
+            openModal('editTenantModal');
+        }
+
+        async function submitEditTenant() {
+            const id = document.getElementById('editTenantId').value;
+            const business_name = document.getElementById('editTenantBusiness').value;
+            const business_phone = document.getElementById('editTenantPhone').value;
+            const email = document.getElementById('editTenantEmail').value;
+            const billing_type = document.getElementById('editTenantBilling').value;
+
+            try {
+                const res = await fetchAuth(`/api/super/tenants/${id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ business_name, business_phone, email, billing_type })
+                });
+
+                if (res.ok) {
+                    showAlert('Tenant Updated', 'success');
+                    closeModal('editTenantModal');
+                    fetchTenants();
+                } else {
+                    showAlert('Update failed', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Network Error', 'error');
+            }
+        }
+
+
+        // --- Password Reset Logic ---
+        function openGlobalResetModal() {
+            const select = document.getElementById('resetTenantSelect');
+            select.innerHTML = '<option value="">-- Select Tenant --</option>';
+
+            allTenants.forEach(t => {
+                select.innerHTML += `<option value="${t.id}">${t.username} (ID: ${t.id})</option>`;
+            });
+
+            document.getElementById('resetNewPass').value = '';
+            openModal('resetPasswordModal');
+        }
+
+        async function submitResetPassword() {
+            const tenantId = document.getElementById('resetTenantSelect').value;
+            const newPass = document.getElementById('resetNewPass').value;
+            const btn = document.querySelector('#resetPasswordModal .btn-warning'); // Select the button
+
+            if (!tenantId || !newPass) return showAlert('Please select a tenant and enter a new password.', 'error');
+
+            // Immediate Feedback
+            const originalText = btn.textContent;
+            btn.textContent = 'Processing...';
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+
+            try {
+                const res = await fetchAuth(`/api/super/tenants/${tenantId}/password`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ new_password: newPass })
+                });
+
+                if (res.ok) {
+                    showAlert('Password successfully reset.', 'success');
+                    closeModal('resetPasswordModal');
+                } else {
+                    const data = await res.json();
+                    showAlert(data.error || 'Failed to reset password.', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Network error occurred.', 'error');
+            } finally {
+                // Restore Button State
+                btn.textContent = originalText;
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        }
+
+        async function generateVPN(id) {
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = 'Generating...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetchAuth(`/api/super/tenants/${id}/vpn`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    showAlert('VPN generated successfully!', 'success');
+                    fetchTenants(); // Refresh list
+                    setTimeout(() => openTenantDetails(id), 500); // Re-open details to show new keys
+                } else {
+                    showAlert(data.error || 'Failed to generate VPN', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showAlert('Network error', 'error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // --- Mobile Sidebar Logic ---
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) sidebar.classList.toggle('open');
+        }
+
+        function initMobileMenus() {
+            const sidebar = document.querySelector('.sidebar');
+            const links = document.querySelectorAll('.sidebar-nav li a');
+            const hamburger = document.querySelector('.mobile-menu-btn');
+
+            // Close sidebar when clicking any link
+            links.forEach(l => {
+                l.addEventListener('click', () => {
+                    if (window.innerWidth <= 768) {
+                        sidebar.classList.remove('open');
+                    }
+                });
+            });
+
+            // Close sidebar when clicking outside
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth <= 768 && sidebar.classList.contains('open')) {
+                    // If click is NOT inside sidebar AND NOT the hamburger button
+                    if (!sidebar.contains(e.target) && !hamburger.contains(e.target)) {
+                        sidebar.classList.remove('open');
+                    }
+                }
+            });
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', initMobileMenus);
+
+    </script>
+</body>
+
+</html>
