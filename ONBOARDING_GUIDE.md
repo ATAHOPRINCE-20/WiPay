@@ -237,3 +237,81 @@ Use the convenience PowerShell startup script from the root folder:
 ### 5.3 Simulating Payments Locally
 Since you won't trigger real mobile money prompt requests locally, you can simulate Relworx webhook callbacks:
 * Send a POST request to `http://localhost:5002/api/webhook` with the payload format of the Relworx API transaction confirmation to test successful purchases and SMS top-ups.
+
+---
+
+## 6. System Overview (How Everything Connects)
+
+To keep it simple, here is a plain-English map of how all the components work together to deliver paid internet:
+
+```
+  [1. User Interface]  <--->  [2. Application Backend]
+   (React Frontend)             (Node.js / Express)
+          |                              |
+          v                              v
+[4. Network Hardware]  <--->   [3. Network Directory]
+ (MikroTik RouterOS)             (FreeRADIUS + MySQL)
+```
+
+1. **The MikroTik Router (Network Hardware):** Intercepts all traffic on the local Wi-Fi. If a user is not logged in, they are redirected to the **Captive Portal** website. When a user tries to authenticate with a voucher code, the router queries FreeRADIUS to check if the code is valid.
+2. **FreeRADIUS (Network Directory):** The security gatekeeper. It queries the same MySQL database used by our Node.js server. It checks if the voucher code exists (`radcheck` table), looks up bandwidth rate limits, and monitors session time limits (`radreply` table).
+3. **The Node.js Server (Application Backend):** The brain that stitches everything together. It handles API requests from the frontend, queries/updates the MySQL database (including the RADIUS tables), triggers Mobile Money prompts via Relworx, texts vouchers via UGSMS, and sends security notifications via Email.
+4. **The React Application (User Interface):** Serves the customer-facing checkout page (Captive Portal) and the admin dashboards (Analytics, Packages, Router Configs).
+
+---
+
+## 7. Email Integration
+
+The system uses **Nodemailer** (`server/src/utils/email.js`) to send transaction notifications, alerts, and time-critical security OTP codes to Admins.
+
+### 7.1 Environment Variables
+To enable emailing, make sure these are set in `server/.env`:
+```env
+EMAIL_HOST=smtp.mailtrap.io   # Leave empty to default to standard Gmail service
+EMAIL_PORT=2525
+EMAIL_SECURE=false            # Set 'true' for port 465 (SSL/TLS)
+EMAIL_USER=your_smtp_username
+EMAIL_PASS=your_smtp_password
+```
+
+### 7.2 Automated Email Triggers
+
+The system sends emails automatically during the following key events:
+
+```mermaid
+graph TD
+    Trigger((System Event)) --> Auth[Authentication / Security]
+    Trigger --> Transactions[Transaction Receipts]
+    Trigger --> Alerts[System Monitoring]
+    
+    Auth -->|Admin Signup| RegOTP[1. Registration OTP - Exp. 10m]
+    Auth -->|Admin Withdrawal Request| WithOTP[2. Withdrawal OTP - Exp. 5m]
+    
+    Transactions -->|Customer buys Wi-Fi| PayReceipt[3. Payment Notification]
+    Transactions -->|Admin tops up SMS wallet| SmsReceipt[4. SMS Purchase Receipt]
+    Transactions -->|Withdrawal processed| WithReceipt[5. Withdrawal Receipt]
+    
+    Alerts -->|Admin SMS balance < 1000 credits| LowSms[6. Low SMS Balance Alert]
+```
+
+1. **Registration Verification (`sendRegistrationOTP`)**
+   * **Trigger:** When a new admin attempts to register.
+   * **Content:** Sends a 6-digit OTP code to verify the business email.
+   * **Expiry:** 10 minutes.
+2. **Withdrawal Authorization (`sendWithdrawalOTP`)**
+   * **Trigger:** When an admin requests a revenue payout to their Mobile Money wallet.
+   * **Content:** Sends a secure 6-digit verification code.
+   * **Expiry:** 5 minutes.
+3. **Customer Payment Receipt (`sendPaymentNotification`)**
+   * **Trigger:** Triggered when a customer pays for Wi-Fi online.
+   * **Content:** Notifies the Admin of the payment details (Amount, Payer Phone, Reference, Voucher Code, and Admin's Net Balance).
+4. **SMS Purchase Receipt (`sendSMSPurchaseNotification`)**
+   * **Trigger:** Triggered when an admin tops up their SMS credit wallet.
+   * **Content:** Confirms transaction details and the new SMS balance.
+5. **Withdrawal Confirmation (`sendWithdrawalNotification`)**
+   * **Trigger:** Triggered when a payout disbursement is successfully dispatched to the admin's phone.
+   * **Content:** Sends amount, recipient phone number, transaction reference, and remaining balance.
+6. **Low SMS Credit Warning (`sendLowSMSBalanceWarning`)**
+   * **Trigger:** Triggered when the admin's SMS credits fall below the minimum threshold (1,000 credits).
+   * **Content:** Directs the admin to buy credits to prevent voucher sales or automated login failures.
+
