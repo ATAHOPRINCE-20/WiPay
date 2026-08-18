@@ -1,0 +1,2049 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' https://cdn.socket.io https://cdn.jsdelivr.net https://ugpay.tech;"
+    />
+    <title>UGPAY - Admin Dashboard</title>
+    <link rel="icon" type="image/png" href="img/favicon.png" />
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <!-- FontAwesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link rel="stylesheet" href="css/dashboard.css" />
+    <style>
+      /* Hover Edit Icon Logic */
+      .hover-edit-btn {
+        opacity: 0;
+        transition: opacity 0.2s ease-in-out;
+        cursor: pointer;
+        color: #ff9800;
+        /* Orange/Yellow for edit */
+        background: none;
+        border: none;
+        font-size: 1.1rem;
+        margin-right: 10px;
+      }
+
+      tr:hover .hover-edit-btn {
+        opacity: 1;
+      }
+
+      /* Ensure it's visible on mobile or touch by default if desired, or keep it hover-only */
+      @media (max-width: 768px) {
+        .hover-edit-btn {
+          opacity: 1;
+          /* Always show on mobile since no hover */
+        }
+      }
+    </style>
+    <script>
+      window.onerror = function (msg, url, line) {
+        alert("Script Error: " + msg + "\nLine: " + line);
+        console.error("Window Error:", msg, url, line);
+        return false;
+      };
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script>
+      (function () {
+        const userStr = localStorage.getItem("wipay_user");
+        try {
+          if (userStr) {
+            const user = userStr.startsWith("{")
+              ? JSON.parse(userStr)
+              : { username: userStr, role: "admin" };
+            if (user.role === "super_admin") {
+              window.location.href = "super_dashboard.html";
+            } else if (user.role === "agent") {
+              window.location.href = "agent.html";
+            }
+          } else {
+            window.location.href = "login_dashboard.html";
+          }
+        } catch (e) {
+          window.location.href = "login_dashboard.html";
+        }
+      })();
+    </script>
+  </head>
+
+  <body class="dark-mode">
+    <div class="dashboard-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <nav class="sidebar-nav">
+          <div class="nav-section">DATA</div>
+          <ul>
+            <li data-view="dashboard">
+              <a
+                href="#"
+                onclick="
+                  switchView('dashboard');
+                  return false;
+                "
+                >Dashboard</a
+              >
+            </li>
+            <li data-view="categories">
+              <a
+                href="#"
+                onclick="
+                  switchView('categories');
+                  return false;
+                "
+                >Categories <span class="add-btn">+ Add</span></a
+              >
+            </li>
+            <li data-view="packages">
+              <a
+                href="#"
+                onclick="
+                  switchView('packages');
+                  return false;
+                "
+                >Packages <span class="add-btn">+ Add</span></a
+              >
+            </li>
+            <li data-view="vouchers">
+              <a
+                href="#"
+                onclick="
+                  switchView('vouchers');
+                  return false;
+                "
+                >Vouchers</a
+              >
+            </li>
+          </ul>
+
+          <div class="nav-section">FINANCE</div>
+          <ul>
+            <li data-view="payments">
+              <a
+                href="#"
+                onclick="
+                  switchView('payments');
+                  return false;
+                "
+                >Payments</a
+              >
+            </li>
+            <li data-view="myTransactions">
+              <a
+                href="#"
+                onclick="
+                  switchView('myTransactions');
+                  return false;
+                "
+                >My Transactions</a
+              >
+            </li>
+          </ul>
+
+          <div class="nav-section">COMMS</div>
+          <ul>
+            <li data-view="ads">
+              <a
+                href="#"
+                onclick="
+                  switchView('ads');
+                  return false;
+                "
+                >Portal Ads <span class="add-btn">+ Upload</span></a
+              >
+            </li>
+            <li data-view="sms">
+              <a
+                href="#"
+                onclick="
+                  switchView('sms');
+                  return false;
+                "
+                >SMS</a
+              >
+            </li>
+          </ul>
+
+          <div class="nav-section">SYSTEM</div>
+          <ul>
+            <li data-view="routers">
+              <a
+                href="#"
+                onclick="
+                  switchView('routers');
+                  return false;
+                "
+                >Routers</a
+              >
+            </li>
+            <li data-view="agents">
+              <a
+                href="#"
+                onclick="
+                  switchView('agents');
+                  return false;
+                "
+                >Agents
+                <span
+                  class="add-btn"
+                  onclick="
+                    openDashModal('addAgentModal');
+                    event.stopPropagation();
+                  "
+                  >+ Add</span
+                ></a
+              >
+            </li>
+            <li data-view="checkSite">
+              <a
+                href="#"
+                onclick="
+                  openCheckSiteModal();
+                  return false;
+                "
+              >
+                <i class="fas fa-globe" style="margin-right: 10px"></i>
+                Check Site
+              </a>
+            </li>
+            <li data-view="downloads">
+              <a
+                href="#"
+                onclick="
+                  switchView('downloads');
+                  return false;
+                "
+                >Downloads</a
+              >
+            </li>
+            <li>
+              <a
+                href="#"
+                onclick="
+                  openDashModal('subscriptionModal');
+                  return false;
+                "
+                >Subscription</a
+              >
+            </li>
+            <li>
+              <a
+                href="#"
+                onclick="
+                  showAlert('Web Configs feature coming soon', 'info');
+                  return false;
+                "
+                >Web Configs</a
+              >
+            </li>
+          </ul>
+        </nav>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Expiry Banner (Responsive) -->
+        <div
+          id="expiryBanner"
+          style="display: none"
+          onclick="openDashModal('subscriptionModal')"
+        >
+          <span class="banner-icon">⚠️</span> <strong>ALERT:</strong> Your
+          Subscription to UGPAY has expired.
+          <span class="renew-link">Click here to Renew</span>
+        </div>
+
+        <!-- New Main Header -->
+        <header class="main-header">
+          <!-- 1. Left: Hamburger -->
+          <div class="header-left">
+            <div
+              class="mobile-menu-btn hidden-desktop"
+              onclick="
+                toggleSidebar();
+                event.stopPropagation();
+              "
+            >
+              ☰
+            </div>
+            <div
+              class="desktop-menu-btn hidden-mobile"
+              onclick="
+                toggleDesktopSidebar();
+                event.stopPropagation();
+              "
+              title="Toggle Sidebar"
+            >
+              ☰
+            </div>
+          </div>
+
+          <!-- 2. Center: Logo -->
+          <div
+            class="header-mid"
+            onclick="switchView('dashboard')"
+            style="cursor: pointer"
+            title="Go to Dashboard"
+          >
+            <img src="img/favicon.png" alt="UGPAY Logo" class="header-logo" />
+            <span class="brand-name"
+              ><span class="text-red">UG</span
+              ><span class="text-blue">PAY</span></span
+            >
+          </div>
+
+          <!-- 3. Right: Button + Avatar -->
+          <div class="header-right-container">
+            <button id="btnSellVoucher" class="btn-sell-voucher">
+              Sell Voucher
+            </button>
+            <!-- Avatar Dropdown -->
+            <div class="user-menu-container" style="position: relative">
+              <div class="user-avatar" onclick="toggleUserMenu(event)">
+                <i class="fas fa-user-circle"></i>
+              </div>
+              <div id="userDropdown" class="user-dropdown hidden">
+                <div class="dropdown-header">
+                  <span id="welcomeMsg">WELCOME, ADMIN</span>
+                </div>
+                <div class="dropdown-divider"></div>
+                <a href="/" target="_blank"
+                  ><i class="fas fa-external-link-alt"></i> View Site</a
+                >
+                <a href="#" onclick="openDashModal('changePassModal')"
+                  ><i class="fas fa-key"></i> Change Password</a
+                >
+                <div
+                  class="dropdown-item theme-row"
+                  onclick="toggleTheme()"
+                  style="cursor: pointer"
+                >
+                  <span id="themeText">Dark Mode</span>
+                  <span class="theme-toggle" id="themeIcon">◐</span>
+                </div>
+                <div class="dropdown-divider"></div>
+                <a href="#" id="logoutLink" style="color: #e74c3c"
+                  ><i class="fas fa-sign-out-alt"></i> LOG OUT</a
+                >
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- Generic Confirmation Modal -->
+        <div
+          id="confirmGlobalModal"
+          class="dashboard-modal hidden"
+          style="z-index: 10000"
+        >
+          <div
+            class="dashboard-modal-content"
+            style="text-align: center; max-width: 400px"
+          >
+            <div
+              id="confirmIcon"
+              style="
+                margin-bottom: 16px;
+                font-size: 3rem;
+                color: var(--primary-color);
+              "
+            >
+              <i class="fas fa-question-circle"></i>
+            </div>
+            <h3 id="confirmTitle">Are you sure?</h3>
+            <p
+              id="confirmMessage"
+              style="color: var(--text-muted); margin-bottom: 24px"
+            >
+              Please confirm this action.
+            </p>
+            <div class="modal-actions">
+              <button id="confirmCancelBtn" class="btn-cancel">Cancel</button>
+              <button id="confirmOkBtn" class="btn-submit">Confirm</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logout Confirmation Modal -->
+        <div
+          id="logoutConfirmModal"
+          class="dashboard-modal hidden"
+          style="z-index: 9999"
+        >
+          <div
+            class="dashboard-modal-content"
+            style="text-align: center; max-width: 360px"
+          >
+            <div style="margin-bottom: 16px; font-size: 3rem; color: #ef4444">
+              <i class="fas fa-sign-out-alt"></i>
+            </div>
+            <h3>Log Out</h3>
+            <p style="color: var(--text-muted); margin-bottom: 24px">
+              Are you sure you want to end your session?
+            </p>
+            <div class="modal-actions">
+              <button
+                onclick="closeDashModal('logoutConfirmModal')"
+                class="btn-cancel"
+              >
+                Cancel
+              </button>
+              <button onclick="performLogout()" class="btn-danger">
+                Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sub Header (Breadcrumbs) -->
+        <div class="sub-header">
+          <div class="breadcrumb" id="breadcrumb">Home > Dashboard</div>
+          <button class="btn-check-site" onclick="openCheckSiteModal()">
+            <i class="fas fa-globe"></i>
+            <span>Check Site</span>
+          </button>
+        </div>
+
+        <!-- Mobile Navigation (Visible only on mobile) -->
+        <div class="mobile-nav hidden-desktop">
+          <div
+            class="mobile-nav-btn"
+            data-view="dashboard"
+            onclick="switchView('dashboard')"
+          >
+            Dashboard
+          </div>
+          <div
+            class="mobile-nav-btn"
+            data-view="categories"
+            onclick="switchView('categories')"
+          >
+            Categories
+          </div>
+          <div
+            class="mobile-nav-btn"
+            data-view="packages"
+            onclick="switchView('packages')"
+          >
+            Packages
+          </div>
+          <div
+            class="mobile-nav-btn"
+            data-view="vouchers"
+            onclick="switchView('vouchers')"
+          >
+            Vouchers
+          </div>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboardView" class="view-section">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Dashboard</h2>
+            <select
+              id="routerFilterDashboard"
+              style="
+                padding: 5px;
+                font-size: 14px;
+                max-width: 150px;
+                border-radius: 6px;
+                border: 1px solid #ddd;
+                outline: none;
+                cursor: pointer;
+              "
+              onchange="onRouterFilterChange(this.value)"
+            >
+              <option value="">All Routers</option>
+              <option disabled>Loading...</option>
+            </select>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-grid" id="statsGrid">
+            <!-- Row 1 -->
+            <div class="stat-card cyan">
+              <div class="stat-value" id="sms-balance">
+                <div
+                  class="spinner"
+                  style="
+                    width: 24px;
+                    height: 24px;
+                    border-width: 3px;
+                    margin: 0 auto;
+                  "
+                ></div>
+              </div>
+              <div class="stat-label">SMS Balance</div>
+              <div
+                class="card-footer"
+                onclick="openDashModal('buySMSModal')"
+                style="cursor: pointer"
+              >
+                Buy SMS
+                <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card blue">
+              <div class="stat-value" id="total-wallet-balance">Loading...</div>
+              <div class="stat-label">Total Wallet Balance</div>
+              <div
+                class="card-footer"
+                onclick="openDashModal('balanceInfoModal')"
+                style="cursor: pointer"
+              >
+                Wallet Total <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card green">
+              <div class="stat-value" id="balance">Loading...</div>
+              <div class="stat-label">Withdrawable Balance</div>
+              <div
+                class="card-footer"
+                onclick="
+                  resetWithdrawalModal();
+                  openDashModal('withdrawModal');
+                "
+                style="cursor: pointer"
+              >
+                Withdraw UGX <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card gray">
+              <div class="stat-value" id="daily-trans">0</div>
+              <div class="stat-label">Daily Transacted</div>
+            </div>
+
+            <div class="stat-card red">
+              <div class="stat-value" id="weekly-trans">0</div>
+              <div class="stat-label">Weekly Transacted</div>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="stat-card blue">
+              <div class="stat-value" id="monthly-trans">0</div>
+              <div class="stat-label">Monthly Transacted</div>
+            </div>
+
+            <div class="stat-card cyan" id="agentSalesCard">
+              <div class="stat-value" id="agent-sales">0</div>
+              <div class="stat-label">Agent Sales (Settled)</div>
+              <div
+                class="card-footer"
+                onclick="switchView('agents')"
+                style="cursor: pointer"
+              >
+                Manage Agents <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card yellow">
+              <div class="stat-value" id="yearly-trans">0</div>
+              <div class="stat-label">Yearly Transacted</div>
+            </div>
+
+            <div class="stat-card gray">
+              <div class="stat-value" id="total-trans">0</div>
+              <div class="stat-label">Total Transacted</div>
+            </div>
+
+            <div class="stat-card blue">
+              <div class="stat-value" id="bought-vouchers">0</div>
+              <div class="stat-label">Bought Vouchers</div>
+              <div
+                class="card-footer"
+                onclick="switchView('boughtVouchers')"
+                style="cursor: pointer"
+              >
+                More info <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <!-- Row 3 -->
+            <div class="stat-card green">
+              <div class="stat-value" id="cat-count">0</div>
+              <div class="stat-label">Categories</div>
+              <div
+                class="card-footer"
+                onclick="switchView('categories')"
+                style="cursor: pointer"
+              >
+                More info
+                <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card gray">
+              <div class="stat-value" id="pkg-count">0</div>
+              <div class="stat-label">Packages</div>
+              <div
+                class="card-footer"
+                onclick="switchView('packages')"
+                style="cursor: pointer"
+              >
+                More info
+                <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card red">
+              <div class="stat-value" id="voucher-count">0</div>
+              <div class="stat-label">Vouchers</div>
+              <div
+                class="card-footer"
+                onclick="switchView('vouchers')"
+                style="cursor: pointer"
+              >
+                More info
+                <span class="arrow">→</span>
+              </div>
+            </div>
+
+            <div class="stat-card yellow">
+              <div class="stat-value" id="payments-count">0</div>
+              <div class="stat-label">Payments</div>
+              <div class="card-footer">
+                More info <span class="arrow">→</span>
+              </div>
+            </div>
+          </div>
+          <!-- End of statsGrid -->
+          <!-- View More (Mobile) -->
+          <div
+            id="viewMoreContainer"
+            class="view-more-container"
+            style="display: none; text-align: center; margin-top: 16px"
+          >
+            <button
+              class="btn-text"
+              onclick="toggleStats()"
+              style="
+                background: none;
+                border: none;
+                color: var(--primary-color);
+                font-weight: 600;
+                cursor: pointer;
+              "
+            >
+              View More <span class="arrow">↓</span>
+            </button>
+          </div>
+
+          <!-- Analytics Chart -->
+          <div
+            class="analytics-container"
+            style="
+              background: var(--card-bg);
+              padding: 20px;
+              border-radius: var(--radius-md);
+              box-shadow: var(--shadow-sm);
+              margin-top: 32px;
+              border: 1px solid var(--border-color);
+            "
+          >
+            <div
+              class="chart-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+                gap: 10px;
+              "
+            >
+              <h3 style="margin: 0; font-size: 1.1rem">Transaction Trends</h3>
+              <div class="chart-controls" style="display: flex; gap: 8px">
+                <button
+                  class="btn-sm active"
+                  id="btnWeekly"
+                  onclick="loadAnalytics('weekly')"
+                  style="
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    border: 1px solid var(--border-color);
+                    background: var(--input-bg);
+                    cursor: pointer;
+                    color: var(--text-main);
+                  "
+                >
+                  Weekly
+                </button>
+                <button
+                  class="btn-sm"
+                  id="btnMonthly"
+                  onclick="loadAnalytics('monthly')"
+                  style="
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    border: 1px solid var(--border-color);
+                    background: var(--input-bg);
+                    cursor: pointer;
+                    color: var(--text-main);
+                  "
+                >
+                  Monthly
+                </button>
+                <button
+                  class="btn-sm"
+                  id="btnYearly"
+                  onclick="loadAnalytics('yearly')"
+                  style="
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    border: 1px solid var(--border-color);
+                    background: var(--input-bg);
+                    cursor: pointer;
+                    color: var(--text-main);
+                  "
+                >
+                  Yearly
+                </button>
+              </div>
+            </div>
+            <div style="position: relative; height: 300px; width: 100%">
+              <canvas id="transactionChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Categories View (Hidden by default) -->
+        <div id="categoriesView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Categories</h2>
+            <button
+              class="btn-success"
+              onclick="openDashModal('addCategoryModal')"
+            >
+              + Add Category
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="categoriesTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Packages View (Hidden by default) -->
+        <div id="packagesView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Packages</h2>
+            <button
+              class="btn-success"
+              onclick="openAddPackageModal()"
+            >
+              + Add Package
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Price (UGX)</th>
+                  <th class="mobile-hide">Category</th>
+                  <th class="mobile-hide">Vouchers</th>
+                  <th class="mobile-hide">Status</th>
+                  <th class="mobile-hide">Action</th>
+                </tr>
+              </thead>
+              <tbody id="packagesTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Vouchers View (Hidden by default) -->
+        <div id="vouchersView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Vouchers</h2>
+            <div style="display: flex; gap: 10px">
+              <button
+                id="btnDeleteVouchers"
+                class="btn-cancel hidden"
+                onclick="deleteSelectedVouchers()"
+              >
+                Delete Selected
+              </button>
+              <button
+                class="btn-submit"
+                onclick="
+                  loadPackagesForImport();
+                  openDashModal('importVoucherModal');
+                "
+              >
+                Import Vouchers
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px">
+                    <input
+                      type="checkbox"
+                      id="selectAllVoucherCb"
+                      onclick="toggleAllVouchers(this)"
+                    />
+                  </th>
+                  <th>Code</th>
+                </tr>
+              </thead>
+              <tbody id="vouchersTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Payments View (Hidden by default) -->
+        <div id="paymentsView" class="view-section hidden">
+          <div class="content-header">
+            <h2>Transaction History</h2>
+            <select
+              id="routerFilterTransactions"
+              class="router-filter"
+              onchange="onRouterFilterChange(this.value)"
+            >
+              <option value="">All Routers</option>
+              <option disabled>Loading...</option>
+            </select>
+            <div class="btn-group">
+              <button
+                class="btn-submit"
+                onclick="openDashModal('withdrawModal')"
+                style="background-color: #ff9800"
+              >
+                Withdraw
+              </button>
+              <button class="btn-submit" onclick="fetchPaymentsList()">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Phone</th>
+                  <th>Buyer Name</th>
+                  <th class="mobile-hide">Amount</th>
+                  <th class="mobile-hide">Package</th>
+                  <th class="mobile-hide">Method</th>
+                  <th class="mobile-hide">Status</th>
+                  <th class="mobile-hide">Ref</th>
+                </tr>
+              </thead>
+              <tbody id="paymentsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Bought Vouchers View (New) -->
+        <div id="boughtVouchersView" class="view-section hidden">
+          <div class="content-header">
+            <h2>Bought Vouchers</h2>
+            <div style="display: flex; gap: 10px; align-items: stretch; height: 42px;">
+              <input 
+                type="text" 
+                id="boughtVoucherSearch" 
+                placeholder="Search phone, name, or code..." 
+                onkeyup="filterBoughtVouchers(this.value)"
+                style="padding: 0 15px; margin: 0; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); width: 250px; height: 100%; box-sizing: border-box;"
+              />
+              <button class="btn-submit" onclick="fetchBoughtVouchersList()" style="margin: 0; padding: 0 20px; height: 100%; display: flex; align-items: center; justify-content: center;">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="mobile-hide">Time Bought</th>
+                  <th>Phone Number</th>
+                  <th>Buyer Name</th>
+                  <th class="mobile-hide">Package</th>
+                  <th class="mobile-hide">Amount</th>
+                  <th>Voucher Code</th>
+                </tr>
+              </thead>
+              <tbody id="boughtVouchersTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SMS Logs View (Hidden by default) -->
+        <div id="smsView" class="view-section hidden">
+          <div class="content-header">
+            <h2>SMS Logs</h2>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Phone</th>
+                  <th>Message</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="smsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Routers View (Hidden by default) -->
+        <div id="routersView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Routers</h2>
+            <button
+              class="btn-success"
+              onclick="openDashModal('addRouterModal')"
+            >
+              + Add Router
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Revenue (Total)</th>
+                  <th>Revenue (24h)</th>
+                  <th>Voucher Stock</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="routersTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Add Router Modal -->
+        <div id="addRouterModal" class="dashboard-modal hidden">
+          <div class="dashboard-modal-content">
+            <h3 class="modal-title">Add Router</h3>
+            <div class="form-group">
+              <label>Router Name</label>
+              <input
+                type="text"
+                id="routerName"
+                placeholder="e.g. Kampala Hostspot"
+              />
+            </div>
+            <div class="form-group">
+              <label>Mikhmon URL</label>
+              <input
+                type="text"
+                id="routerUrl"
+                placeholder="http://84.46.253.72/mikhmon/...?id=session"
+              />
+              <small style="color: #666; font-size: 0.8rem"
+                >Copy the full URL from your browser address bar when logged
+                into the router in Mikhmon.</small
+              >
+            </div>
+            
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+               <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials (Recommended)</h4>
+               <p style="font-size: 0.75rem; color: #888; margin-bottom: 10px;">Create a dedicated API user on your MikroTik for automatic voucher sync and calendar validity cutoff.</p>
+               <div class="form-group">
+                 <label>Target Router System IP</label>
+                 <input type="text" id="routerApiHost" placeholder="e.g. 192.168.88.1 or public IP" />
+                 <small style="color: #666; font-size: 0.8rem">Required if different from Mikhmon domain.</small>
+               </div>
+               <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <div>
+                    <label>API User</label>
+                    <input type="text" id="routerApiUser" placeholder="e.g. wipay_api" />
+                  </div>
+                  <div>
+                    <label>API Pass</label>
+                    <input type="password" id="routerApiPass" placeholder="••••••••" />
+                  </div>
+               </div>
+               <div class="form-group">
+                  <label>API Port (Default: 8728)</label>
+                  <input type="number" id="routerApiPort" value="8728" />
+               </div>
+            </div>
+            <div class="modal-actions">
+              <button
+                class="btn-cancel"
+                onclick="closeDashModal('addRouterModal')"
+              >
+                Cancel
+              </button>
+              <button class="btn-submit" onclick="submitAddRouter()">
+                Save Router
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit Router Modal -->
+        <div id="editRouterModal" class="dashboard-modal hidden">
+          <div class="dashboard-modal-content">
+            <h3 class="modal-title">Edit Router</h3>
+            <input type="hidden" id="editRouterId" />
+            <div class="form-group">
+              <label>Router Name</label>
+              <input type="text" id="editRouterName" />
+            </div>
+            <div class="form-group">
+              <label>Mikhmon URL</label>
+              <input type="text" id="editRouterUrl" />
+              <small style="color: #666; font-size: 0.8rem"
+                >Update the Mikhmon session URL if it has changed.</small
+              >
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #444;">
+               <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: #aaa;">MikroTik API Credentials</h4>
+               <div class="form-group">
+                 <label>Target Router System IP</label>
+                 <input type="text" id="editRouterApiHost" placeholder="e.g. 192.168.88.1 or public IP" />
+                 <small style="color: #666; font-size: 0.8rem">Required if different from Mikhmon domain.</small>
+               </div>
+               <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <div>
+                    <label>API User</label>
+                    <input type="text" id="editRouterApiUser" />
+                  </div>
+                  <div>
+                    <label>API Pass</label>
+                    <input type="password" id="editRouterApiPass" placeholder="Leave empty for no change" />
+                  </div>
+               </div>
+               <div class="form-group">
+                  <label>API Port</label>
+                  <input type="number" id="editRouterApiPort" />
+               </div>
+            </div>
+            <div class="modal-actions">
+              <button
+                class="btn-cancel"
+                onclick="closeDashModal('editRouterModal')"
+              >
+                Cancel
+              </button>
+              <button class="btn-submit" onclick="submitEditRouter()">
+                Update Router
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- My Transactions View -->
+        <div id="myTransactionsView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>My Transactions</h2>
+            <button class="btn-submit" onclick="fetchMyTransactions()">
+              Refresh
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th class="mobile-hide">Type</th>
+                  <th>Amount</th>
+                  <th class="mobile-hide">Status</th>
+                  <th class="mobile-hide">Description</th>
+                  <th class="mobile-hide">Ref</th>
+                </tr>
+              </thead>
+              <tbody id="myTransactionsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Agents View -->
+        <div id="agentsView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Agents Management</h2>
+            <button class="btn-submit" onclick="openDashModal('addAgentModal')">
+              + Add Agent
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Phone</th>
+                  <th>Stock</th>
+                  <th>Total Sales</th>
+                  <th>Unsettled</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="agentsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Downloads View -->
+        <div id="downloadsView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Downloads</h2>
+            <button class="btn-submit" onclick="fetchDownloadsList()">
+              Refresh List
+            </button>
+          </div>
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>File Name</th>
+                  <th>Description</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="downloadsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Ads View -->
+        <div id="adsView" class="view-section hidden">
+          <div
+            class="content-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <h2>Portal Ads</h2>
+            <button class="btn-submit" onclick="openDashModal('uploadAdModal')">
+              + Upload Ad
+            </button>
+          </div>
+          <p style="color: #666; margin-bottom: 20px">
+            Upload a PNG banner (recommended 1200x400) to display on your
+            captive portal. Ads must be approved by the super admin.
+          </p>
+
+          <div class="table-responsive table-scroll-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Preview</th>
+                  <th class="mobile-hide">Target Link</th>
+                  <th>Status</th>
+                  <th class="mobile-hide">Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adsTableBody">
+                <!-- JS renders rows here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modals (Add Category/Package) -->
+    <!-- Same modals as before... -->
+
+    <!-- Add Agent Modal -->
+    <div id="addAgentModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Add New Agent</h3>
+        <input type="text" id="newAgentUsername" placeholder="Username" />
+        <input type="password" id="newAgentPassword" placeholder="Password" />
+        <input
+          type="text"
+          id="newAgentPhone"
+          placeholder="Phone Number (Optional)"
+        />
+        <div class="modal-actions">
+          <button onclick="createAgent()" class="btn-submit">Save Agent</button>
+          <button onclick="closeDashModal('addAgentModal')" class="btn-cancel">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assign Vouchers Modal -->
+    <div id="assignVouchersModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Assign Vouchers to Agent</h3>
+        <input type="hidden" id="assignAgentId" />
+        <p>
+          Assign vouchers for a specific package to
+          <strong id="assignAgentName"></strong>
+        </p>
+        <select id="assignPackageId" style="margin-top: 10px">
+          <option value="">Select Package</option>
+        </select>
+        <input
+          type="number"
+          id="assignQuantity"
+          placeholder="Quantity to assign"
+          style="margin-top: 10px"
+        />
+        <div class="modal-actions">
+          <button onclick="submitAssignVouchers()" class="btn-submit">
+            Assign Stock
+          </button>
+          <button
+            onclick="closeDashModal('assignVouchersModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Category Modal -->
+    <div id="addCategoryModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Add Category</h3>
+        <input
+          type="text"
+          id="newCatName"
+          placeholder="Category Name (e.g., Daily Bundles)"
+        />
+        <div class="modal-actions">
+          <button onclick="createCategory()" class="btn-submit">Save</button>
+          <button
+            onclick="closeDashModal('addCategoryModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- ... -->
+
+    <!-- ... -->
+
+    <!-- Add Package Modal -->
+    <div id="addPackageModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Add Package</h3>
+        <input
+          type="text"
+          id="pkgName"
+          placeholder="Package Name (e.g. 1 Hour Unlimited)"
+        />
+        <input type="number" id="pkgPrice" placeholder="Price (UGX)" />
+        <select id="pkgCategory">
+          <option value="">Select Category</option>
+        </select>
+        <label>MikroTik Profile</label>
+        <input
+          type="text"
+          id="pkgProfile"
+          placeholder="e.g. daily (default if empty)"
+          style="margin-bottom: 10px"
+        />
+        <div class="modal-actions">
+          <button onclick="createPackage()" class="btn-submit">Save</button>
+          <button
+            onclick="closeDashModal('addPackageModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Category Modal -->
+    <div id="editCategoryModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Edit Category</h3>
+        <input type="hidden" id="editCatId" />
+        <input type="text" id="editCatName" placeholder="Category Name" />
+        <div class="modal-actions">
+          <button onclick="submitEditCategory()" class="btn-submit">
+            Update
+          </button>
+          <button
+            onclick="closeDashModal('editCategoryModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Package Modal -->
+    <div id="editPackageModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Edit Package</h3>
+        <input type="hidden" id="editPkgId" />
+        <label>Name</label>
+        <input
+          type="text"
+          id="editPkgName"
+          placeholder="Package Name"
+          style="margin-bottom: 10px"
+        />
+        <label>Price (UGX)</label>
+        <input
+          type="number"
+          id="editPkgPrice"
+          placeholder="Price"
+          style="margin-bottom: 10px"
+        />
+        <label>Category</label>
+        <select id="editPkgCategory" style="margin-bottom: 15px">
+          <option value="">Select Category</option>
+        </select>
+        <label>MikroTik Profile</label>
+        <input
+          type="text"
+          id="editPkgProfile"
+          placeholder="MikroTik Profile"
+          style="margin-bottom: 15px"
+        />
+        <div class="modal-actions">
+          <button onclick="submitEditPackage()" class="btn-submit">
+            Update
+          </button>
+          <button
+            onclick="closeDashModal('editPackageModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Voucher Modal -->
+    <div id="importVoucherModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Import Vouchers</h3>
+        <div style="margin-bottom: 15px; font-size: 0.9rem; color: #ccc">
+          Select a package and upload a CSV file containing voucher codes (one
+          per line).
+        </div>
+        <select id="importPackageId">
+          <option value="">Select Package</option>
+        </select>
+        <input
+          type="file"
+          id="voucherCsv"
+          accept=".csv"
+          style="padding: 10px; background: #333; color: white"
+        />
+
+        <div class="modal-actions">
+          <button onclick="importVouchers()" class="btn-submit">Upload</button>
+          <button
+            onclick="closeDashModal('importVoucherModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sell Voucher Modal -->
+    <div id="sellVoucherModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Sell Voucher</h3>
+        <p style="font-size: 0.9em; color: #666; margin-bottom: 15px">
+          Send a voucher via SMS.
+        </p>
+
+        <select
+          id="sellPackageId"
+          style="width: 100%; margin-bottom: 15px; padding: 10px"
+        >
+          <option value="">Select Package</option>
+        </select>
+
+        <input
+          type="text"
+          id="sellPhone"
+          placeholder="Recipient Phone (+256...)"
+          style="width: 100%; padding: 10px; margin-bottom: 15px"
+        />
+
+        <div class="modal-actions">
+          <button
+            onclick="closeDashModal('sellVoucherModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+          <button onclick="submitSellVoucher()" class="btn-submit">
+            Send SMS
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePassModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Change Password</h3>
+        <input
+          type="password"
+          id="currentPass"
+          placeholder="Current Password"
+          style="width: 100%; padding: 10px; margin-bottom: 10px"
+        />
+        <input
+          type="password"
+          id="newPass"
+          placeholder="New Password"
+          style="width: 100%; padding: 10px; margin-bottom: 10px"
+        />
+        <input
+          type="password"
+          id="confirmPass"
+          placeholder="Confirm New Password"
+          style="width: 100%; padding: 10px; margin-bottom: 15px"
+        />
+
+        <div class="modal-actions">
+          <button onclick="submitChangePass()" class="btn-submit">
+            Update
+          </button>
+          <button
+            onclick="closeDashModal('changePassModal')"
+            class="btn-cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="customAlertModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3 id="customAlertTitle">Alert</h3>
+        <div style="text-align: center; margin-bottom: 20px">
+          <i
+            id="alertIcon"
+            class="fas fa-info-circle"
+            style="font-size: 3rem; color: #2196f3"
+          ></i>
+        </div>
+        <p
+          id="customAlertMessage"
+          style="text-align: center; margin-bottom: 20px"
+        >
+          Message goes here.
+        </p>
+        <div class="modal-actions center-actions">
+          <button onclick="closeCustomAlert()" class="btn-submit">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="customConfirmModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Confirm Action</h3>
+        <p id="customConfirmMessage">Are you sure?</p>
+        <div class="modal-actions">
+          <button id="confirmCancelBtn" class="btn-cancel">Cancel</button>
+          <button id="confirmOkBtn" class="btn-submit">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Check Site Modal -->
+    <div id="checkSiteModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 style="margin: 0">Check Site - Select Router</h3>
+          <button
+            onclick="closeDashModal('checkSiteModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
+        </div>
+        <p style="color: #888; font-size: 0.9rem; margin-bottom: 20px">
+          Select a router below to auto-login to its Mikhmon session.
+        </p>
+        <div
+          id="checkSiteRouterList"
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+          "
+        >
+          <!-- Populated by JS -->
+          <div style="text-align: center; color: #aaa; padding: 20px">
+            Fetching routers...
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button onclick="closeDashModal('checkSiteModal')" class="btn-cancel">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="dashboard-modal hidden" style="z-index: 6000">
+      <div class="dashboard-modal-content success-content">
+        <div class="success-header">
+          <img src="img/favicon.png" alt="UGPAY Logo" class="success-logo" />
+        </div>
+        <div class="success-icon">
+          <div class="checkmark-circle">
+            <div class="background"></div>
+            <div class="checkmark draw"></div>
+          </div>
+        </div>
+        <h3 class="success-title">Success!</h3>
+        <p id="successMessage" class="success-message">
+          <!-- Voucher (CODE) has been sent successfully to (PHONE). -->
+        </p>
+        <div class="modal-actions center-actions">
+          <button onclick="closeDashModal('successModal')" class="btn-submit">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subscription Modal -->
+    <div id="subscriptionModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3>Subscription Status</h3>
+        <p id="subStatusText" style="margin-bottom: 20px">Checking status...</p>
+
+        <div id="renewSection">
+          <label style="display: block; margin-bottom: 10px; font-weight: bold"
+            >Renew Subscription via Mobile Money</label
+          >
+          <input
+            type="text"
+            id="renewPhone"
+            placeholder="Enter Phone (07XX...)"
+            style="margin-bottom: 10px"
+          />
+          <select id="renewMonths" style="margin-bottom: 15px">
+            <option value="1">1 Month - 25,000 UGX</option>
+            <option value="3">3 Months - 75,000 UGX</option>
+            <option value="6">6 Months - 150,000 UGX</option>
+            <option value="12">1 Year - 300,000 UGX</option>
+          </select>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            onclick="closeDashModal('subscriptionModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+          <button onclick="startSubscriptionRenewal()" class="btn-submit">
+            Renew Now
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Ad Modal -->
+    <div id="uploadAdModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3 class="modal-title">Upload Portal Ad</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px">
+          Select a PNG image (max 2MB). Recommended aspect ratio is 3:1 (e.g. 1200x400).
+        </p>
+        <div class="form-group">
+          <label>Ad Image (PNG only)</label>
+          <input type="file" id="adFile" accept="image/png" />
+        </div>
+        <div class="form-group">
+          <label>Target URL (Optional)</label>
+          <input type="url" id="adTargetUrl" placeholder="https://example.com" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeDashModal('uploadAdModal')">
+            Cancel
+          </button>
+          <button class="btn-submit" onclick="uploadAd()">Upload & Submit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buy SMS Modal -->
+    <div id="buySMSModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <h3 class="modal-title" style="margin: 0">Buy SMS Credits</h3>
+          <button
+            onclick="closeDashModal('buySMSModal')"
+            style="
+              background: none;
+              border: none;
+              font-size: 1.5rem;
+              cursor: pointer;
+              color: #666;
+            "
+          >
+            &times;
+          </button>
+        </div>
+        <div class="form-group">
+          <label>Phone Number (Mobile Money)</label>
+          <input type="text" id="smsPhone" placeholder="07XX XXX XXX" />
+        </div>
+        <div class="form-group">
+          <label>Amount (UGX)</label>
+          <input
+            type="number"
+            id="smsAmount"
+            placeholder="Enter amount"
+            min="500"
+            oninput="calculateSMSPreview(this.value)"
+          />
+          <small
+            id="smsPreview"
+            style="
+              display: block;
+              margin-top: 5px;
+              color: var(--text-muted);
+              font-size: 0.85rem;
+            "
+          >
+            Unknown SMS count
+          </small>
+        </div>
+
+        <!-- Inline Progress Bar (Hidden by default) -->
+        <div
+          id="smsProgressBarContainer"
+          style="display: none; margin-top: 20px; text-align: center"
+        >
+          <p style="font-size: 0.9em; color: #666; margin-bottom: 10px">
+            Waiting for Payment...
+          </p>
+          <div
+            style="
+              width: 100%;
+              height: 8px;
+              background: #f0f0f0;
+              border-radius: 4px;
+              overflow: hidden;
+            "
+          >
+            <div
+              id="smsProgressBar"
+              style="
+                width: 0%;
+                height: 100%;
+                background: #4caf50;
+                transition: width 0.5s ease;
+              "
+            ></div>
+          </div>
+          <p style="font-size: 0.8em; color: #999; margin-top: 5px">
+            Check your phone to approve
+          </p>
+        </div>
+        <div class="modal-actions">
+          <button
+            class="btn-cancel"
+            type="button"
+            onclick="closeDashModal('buySMSModal')"
+          >
+            Cancel
+          </button>
+          <button class="btn-submit" type="button" onclick="submitBuySMS()">
+            Pay & Topup
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Withdraw Modal -->
+    <div id="withdrawModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content">
+        <h3 class="modal-title">Withdraw Funds</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 15px">
+          Transfer funds from your Wallet to Mobile Money.
+        </p>
+
+        <!-- Step 1: Details -->
+        <div id="withdrawStep1">
+          <div class="form-group">
+            <label>Amount (UGX)</label>
+            <input
+              type="number"
+              id="withdrawAmount"
+              placeholder="Enter amount"
+            />
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="text" id="withdrawPhone" placeholder="07XX XXX XXX" />
+          </div>
+          <div class="form-group">
+            <label>Description (Optional)</label>
+            <input
+              type="text"
+              id="withdrawDesc"
+              placeholder="Reason for withdrawal"
+            />
+          </div>
+        </div>
+
+        <!-- Step 2: OTP -->
+        <div id="withdrawStep2" class="hidden">
+          <div class="form-group" style="text-align: center">
+            <label style="font-size: 1.1rem; color: #ff9800"
+              >Enter OTP Code</label
+            >
+            <p style="font-size: 0.85rem; color: #666; margin-bottom: 10px">
+              A code has been sent to your email.
+            </p>
+            <input
+              type="text"
+              id="withdrawOTP"
+              placeholder="XXXXXX"
+              style="text-align: center; letter-spacing: 5px; font-size: 1.5rem"
+            />
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            class="btn-cancel"
+            onclick="
+              resetWithdrawalModal();
+              closeDashModal('withdrawModal');
+            "
+          >
+            Cancel
+          </button>
+          <button
+            class="btn-submit"
+            id="btnWithdrawNext"
+            onclick="initiateWithdrawal()"
+          >
+            Next
+          </button>
+          <button
+            class="btn-submit hidden"
+            id="btnWithdrawConfirm"
+            onclick="submitWithdrawal()"
+          >
+            Confirm & Withdraw
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Support Widget -->
+    <div class="support-fab-container">
+      <div class="support-popover" id="supportPopover">
+        <div class="support-header">Contact Support</div>
+        <a
+          href="https://wa.me/256757136062"
+          target="_blank"
+          class="support-link"
+        >
+          <i class="fab fa-whatsapp" style="color: #25d366"></i> WhatsApp Us
+        </a>
+        <a href="mailto:support@ugpay.tech" class="support-link">
+          <i class="fas fa-envelope" style="color: #3b82f6"></i> Email Support
+        </a>
+        <a href="tel:+256757136062" class="support-link">
+          <i class="fas fa-phone" style="color: #10b981"></i> Call Us
+        </a>
+      </div>
+      <button class="support-fab" onclick="toggleSupport()">
+        <i class="fas fa-headset"></i>
+      </button>
+    </div>
+
+    <!-- Generic Detail Modal (Responsive Tables) -->
+    <div id="genericDetailModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 id="genericDetailTitle" style="margin: 0">Details</h3>
+          <button
+            onclick="closeDashModal('genericDetailModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
+        </div>
+        <div id="genericDetailContent">
+          <!-- Populated by JS -->
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button
+            onclick="closeDashModal('genericDetailModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Package Detail Modal -->
+    <div id="packageDetailModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content" style="max-width: 500px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 style="margin: 0">Package Details</h3>
+          <button
+            onclick="closeDashModal('packageDetailModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
+        </div>
+        <div id="packageDetailContent">
+          <!-- Populated by JS -->
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button
+            onclick="closeDashModal('packageDetailModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction Detail Modal -->
+    <div id="transactionDetailModal" class="dashboard-modal hidden">
+      <div class="dashboard-modal-content" style="max-width: 600px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          "
+        >
+          <h3 style="margin: 0">Transaction Details</h3>
+          <button
+            onclick="closeDashModal('transactionDetailModal')"
+            style="
+              background: none;
+              border: none;
+              color: #666;
+              font-size: 1.5rem;
+              cursor: pointer;
+            "
+          >
+            &times;
+          </button>
+        </div>
+        <div id="transactionDetailContent">
+          <!-- Populated by JS -->
+        </div>
+        <div class="modal-actions" style="margin-top: 20px">
+          <button
+            onclick="closeDashModal('transactionDetailModal')"
+            class="btn-cancel"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/config.js?v=10002"></script>
+    <script type="module" src="js/dashboard-logic.js?v=10002"></script>
+    <script>
+    </script>
+    <!-- Balance Info Modal -->
+    <div id="balanceInfoModal" class="dashboard-modal hidden">
+      <div
+        class="dashboard-modal-content"
+        style="max-width: 400px; text-align: center"
+      >
+        <div style="margin-bottom: 16px; font-size: 3rem; color: #3b82f6">
+          <i class="fas fa-info-circle"></i>
+        </div>
+        <h3 class="modal-title">Wallet Balance Info</h3>
+        <p
+          style="
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 24px;
+          "
+        >
+          This is your <strong>Total Wallet Balance</strong>. <br /><br />
+          Please note that a fixed withdrawal fee of
+          <strong>2,000 UGX</strong> will be deducted from this amount whenever
+          you make a withdrawal.
+        </p>
+        <div class="modal-actions">
+          <button
+            class="btn-submit"
+            onclick="closeDashModal('balanceInfoModal')"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

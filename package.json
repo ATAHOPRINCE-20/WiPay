@@ -1,0 +1,14 @@
+{
+  "name": "wipay-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix wipay-frontend run dev",
+    "dev:frontend": "npm --prefix wipay-frontend run dev",
+    "server": "npm --prefix server start",
+    "start": "npm --prefix server start",
+    "build": "npm --prefix wipay-frontend run build"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}

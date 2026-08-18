@@ -1,0 +1,6 @@
+node_modules/
+.env
+SERVER_HEALTH.md
+*.log
+uploads/
+dist/

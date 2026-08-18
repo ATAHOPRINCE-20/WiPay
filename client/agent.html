@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Dashboard - WiPay</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-grad: linear-gradient(135deg, #3b82f6, #06b6d4);
+            --bg: #0f172a;
+            --card-glass: rgba(30, 41, 59, 0.7);
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --success: #10b981;
+            --success-grad: linear-gradient(135deg, #10b981, #059669);
+            --danger: #ef4444;
+            --radius: 24px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            background-image: 
+                radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+            color: var(--text);
+            padding: 20px;
+            max-width: 500px;
+            margin: 0 auto;
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Glass Cards */
+        .glass-card {
+            background: var(--card-glass);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 10px 0;
+        }
+
+        .user-info { display: flex; align-items: center; gap: 14px; }
+        .avatar { 
+            width: 48px; height: 48px; 
+            background: var(--primary-grad); 
+            border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center; 
+            font-weight: 800; font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            border: 2px solid rgba(255,255,255,0.1);
+        }
+
+        .btn-icon { 
+            background: var(--card-glass); 
+            border: 1px solid var(--border-glass); 
+            color: var(--text); 
+            width: 44px; height: 44px; 
+            border-radius: 14px; 
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-icon:active { transform: scale(0.9); background: rgba(255,255,255,0.1); }
+
+        .stock-hero {
+            background: var(--primary-grad);
+            padding: 32px;
+            border-radius: var(--radius);
+            text-align: center;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.4);
+        }
+        .stock-hero::before {
+            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: rotate 10s linear infinite;
+        }
+        @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .stock-hero h2 { font-size: 0.85rem; font-weight: 700; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .stock-count { font-size: 4rem; font-weight: 800; letter-spacing: -2px; position: relative; }
+
+        .btn-sell {
+            width: 100%;
+            padding: 22px;
+            border-radius: 20px;
+            border: none;
+            background: var(--success-grad);
+            color: white;
+            font-size: 1.3rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 12px 24px -6px rgba(16, 185, 129, 0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .btn-sell:active { transform: scale(0.96); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); }
+
+        .section-header { 
+            font-size: 0.9rem; font-weight: 700; color: var(--muted); 
+            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; 
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+        .stat-box {
+            background: var(--card-glass);
+            padding: 20px;
+            border-radius: 20px;
+            border: 1px solid var(--border-glass);
+        }
+        .stat-box span { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; }
+        .stat-box strong { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+
+        .sale-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 16px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .sale-info .pkg { font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
+        .sale-info .time { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
+        .sale-price { font-weight: 800; color: var(--success); font-size: 1.05rem; }
+
+        /* Premium Modals */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 2000;
+        }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.3s ease; }
+        
+        .modal-card {
+            background: var(--bg);
+            width: 100%;
+            max-width: 400px;
+            padding: 32px;
+            border-radius: 28px;
+            border: 1px solid var(--border-glass);
+            text-align: center;
+            position: relative;
+            transform: translateY(20px);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .modal-overlay.active .modal-card { transform: translateY(0); }
+
+        .success-glow {
+            width: 80px; height: 80px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+            color: var(--success);
+            font-size: 2.5rem;
+            position: relative;
+        }
+        .success-glow::after {
+            content: ''; position: absolute; inset: -10px;
+            border: 2px solid var(--success); border-radius: 50%;
+            animation: pulse 2s infinite; opacity: 0.5;
+        }
+
+        .reveal-code {
+            font-size: 2.8rem;
+            letter-spacing: 6px;
+            font-weight: 900;
+            color: var(--primary);
+            margin: 24px 0;
+            padding: 20px;
+            background: rgba(59, 130, 246, 0.05);
+            border-radius: 18px;
+            border: 2px dashed rgba(59, 130, 246, 0.3);
+            font-family: 'Courier New', monospace;
+        }
+
+        .btn-modal {
+            width: 100%;
+            padding: 16px;
+            border-radius: 16px;
+            border: none;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .btn-primary { background: var(--primary-grad); color: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border-glass); }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
+
+        .pkg-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        
+        .pkg-card {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .pkg-card:active { transform: scale(0.98); background: rgba(255,255,255,0.05); }
+        
+        .pkg-meta h3 { font-size: 1.1rem; font-weight: 800; margin-bottom: 4px; color: var(--primary); }
+        .pkg-meta .price { font-size: 0.85rem; color: var(--success); font-weight: 700; display: block; }
+        .pkg-meta .stock { font-size: 0.75rem; color: var(--muted); margin-top: 4px; display: block; }
+
+        .btn-sell-mini {
+            background: var(--success-grad);
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; border: none; font-size: 1.1rem;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        /* Hide the old big button */
+        .btn-sell { display: none; }
+    </style>
+    <script>
+        (function() {
+            const userStr = localStorage.getItem('wipay_user');
+            try {
+                if (userStr) {
+                    const user = userStr.startsWith('{') ? JSON.parse(userStr) : { username: userStr, role: 'agent' };
+                    if (user.role !== 'agent') {
+                        if (user.role === 'super_admin') window.location.href = 'super_dashboard.html';
+                        else window.location.href = 'dashboard.html';
+                    }
+                } else {
+                    window.location.href = 'login_dashboard.html';
+                }
+            } catch (e) {
+                window.location.href = 'login_dashboard.html';
+            }
+        })();
+    </script>
+</head>
+<body>
+    <div class="header">
+        <div class="user-info" onclick="openLogoutModal()" style="cursor: pointer;">
+            <div class="avatar" id="agentInitial">-</div>
+            <div>
+                <h1 style="font-size: 1rem; font-weight: 800;" id="agentUsername">Loading...</h1>
+                <p style="font-size: 0.75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Field Agent • <span style="color: var(--primary);">Sign Out</span></p>
+            </div>
+        </div>
+        <div class="btn-icon" onclick="updateData()">
+            <i class="fas fa-sync-alt"></i>
+        </div>
+    </div>
+
+    <div class="stock-hero">
+        <h2>Handheld Stock</h2>
+        <div class="stock-count" id="stockCount">0</div>
+    </div>
+
+    <div class="section-header">Available Stock</div>
+    <div id="pkgList" class="pkg-grid">
+        <!-- Packages injected here -->
+        <div style="text-align: center; color: var(--muted); padding: 20px;">Checking inventory...</div>
+    </div>
+
+    <div class="section-header">Performance</div>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <span>Today Sales</span>
+            <strong id="statToday">0</strong>
+        </div>
+        <div class="stat-box">
+            <span>Weekly</span>
+            <strong id="statWeekly">0</strong>
+        </div>
+        <div class="stat-box">
+            <span>Monthly</span>
+            <strong id="statMonthly">0</strong>
+        </div>
+        <div class="stat-box">
+            <span>Total Units</span>
+            <strong id="statYearly">0</strong>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <span>Recent Activity</span>
+        <i class="fas fa-history" style="font-size: 0.8rem; opacity: 0.5;"></i>
+    </div>
+    <div id="salesList">
+        <!-- Activity items injected here -->
+    </div>
+    <button id="viewMoreBtn" class="btn-modal btn-ghost" style="display: none; margin-bottom: 30px;" onclick="toggleAllSales()">
+        VIEW ALL ACTIVITY
+    </button>
+
+    <!-- Voucher Reveal Modal -->
+    <div id="saleModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="success-glow">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <h2 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 8px;">Voucher Sold!</h2>
+            <p style="color: var(--muted); font-size: 0.95rem;">Please read code to customer:</p>
+            
+            <div class="reveal-code" id="revealedCode">------</div>
+            
+            <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 16px; margin-bottom: 24px;">
+                <p id="revealedPkg" style="font-weight: 800; color: var(--success); font-size: 1.1rem;"></p>
+                <small style="color: var(--muted);">Physical handheld sale recorded</small>
+            </div>
+
+            <button class="btn-modal btn-primary" onclick="closeModal('saleModal')">
+                DONE & CONTINUE
+            </button>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal-card">
+            <div style="width: 60px; height: 60px; background: rgba(59, 130, 246, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: var(--primary); font-size: 1.5rem;">
+                <i class="fas fa-question-circle"></i>
+            </div>
+            <h2 id="confirmTitle" style="font-size: 1.3rem; font-weight: 800; margin-bottom: 12px;">Confirm Action</h2>
+            <p id="confirmMessage" style="color: var(--muted); margin-bottom: 24px;">Are you sure?</p>
+            
+            <button id="confirmOkBtn" class="btn-modal btn-primary">
+                CONFIRM
+            </button>
+            <button class="btn-modal btn-ghost" onclick="closeModal('confirmModal')">
+                CANCEL
+            </button>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="alertModal" class="modal-overlay">
+        <div class="modal-card">
+            <div id="alertIconBox" style="width: 60px; height: 60px; background: rgba(239, 68, 68, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: var(--danger); font-size: 1.5rem;">
+                <i id="alertIcon" class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h2 id="alertTitle" style="font-size: 1.3rem; font-weight: 800; margin-bottom: 12px;">Alert</h2>
+            <p id="alertMessage" style="color: var(--muted); margin-bottom: 24px;">Message goes here.</p>
+            
+            <button class="btn-modal btn-primary" onclick="closeModal('alertModal')">
+                OK
+            </button>
+        </div>
+    </div>
+
+    <!-- Logout Confirmation Modal -->
+    <div id="logoutModal" class="modal-overlay">
+        <div class="modal-card">
+            <div style="width: 60px; height: 60px; background: rgba(239, 68, 68, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: var(--danger); font-size: 1.5rem;">
+                <i class="fas fa-sign-out-alt"></i>
+            </div>
+            <h2 style="font-size: 1.3rem; font-weight: 800; margin-bottom: 12px;">Sign Out?</h2>
+            <p style="color: var(--muted); margin-bottom: 24px;">Are you sure you want to end your session?</p>
+            
+            <button class="btn-modal btn-primary" style="background: var(--danger);" onclick="confirmLogout()">
+                YES, SIGN OUT
+            </button>
+            <button class="btn-modal btn-ghost" onclick="closeModal('logoutModal')">
+                CANCEL
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { fetchAuth } from './js/modules/api.js';
+
+        let allSales = [];
+        let showingAllSales = false;
+
+        async function init() {
+            const userStr = localStorage.getItem('wipay_user');
+            if (!userStr) {
+                window.location.href = 'login_dashboard.html';
+                return;
+            }
+            
+            let user;
+            try {
+                user = userStr.startsWith('{') ? JSON.parse(userStr) : { username: userStr, role: 'agent' };
+            } catch (e) {
+                user = { username: userStr, role: 'agent' };
+            }
+
+            document.getElementById('agentUsername').innerText = user.username || 'Agent';
+            
+            const initial = (user.username && user.username[0]) ? user.username[0].toUpperCase() : '?';
+            document.getElementById('agentInitial').innerHTML = initial === '?' 
+                ? '<i class="fas fa-user"></i>' 
+                : initial;
+            
+            await updateData();
+        }
+
+        async function updateData() {
+            try {
+                // Fetch Stats
+                const statsRes = await fetchAuth('/api/agent/stats');
+                const stats = await statsRes.json();
+                document.getElementById('stockCount').innerText = stats.stock;
+                document.getElementById('statToday').innerText = Number(stats.todaySales || 0).toLocaleString();
+
+                // Fetch Analytics
+                const analyticsRes = await fetchAuth('/api/agent/analytics');
+                const analytics = await analyticsRes.json();
+                document.getElementById('statWeekly').innerText = Number(analytics.weekly || 0).toLocaleString();
+                document.getElementById('statMonthly').innerText = Number(analytics.monthly || 0).toLocaleString();
+                document.getElementById('statYearly').innerText = Number(analytics.yearly || 0).toLocaleString();
+
+                // Fetch Packages
+                const pkgRes = await fetchAuth('/api/agent/packages');
+                const packages = await pkgRes.json();
+                renderPackages(packages);
+
+                // Fetch Sales
+                const salesRes = await fetchAuth('/api/agent/sales');
+                allSales = await salesRes.json();
+                renderSales();
+            } catch (e) { 
+                console.error(e); 
+                showAlert('Error updating dashboard', 'error');
+            }
+        }
+        window.updateData = updateData;
+
+        function renderPackages(packages) {
+            const list = document.getElementById('pkgList');
+            list.innerHTML = '';
+            
+            if (packages.length === 0) {
+                list.innerHTML = `
+                    <div style="text-align: center; color: var(--muted); padding: 20px;">
+                        <i class="fas fa-box-open" style="font-size: 2rem; margin-bottom: 10px; display: block; opacity: 0.3;"></i>
+                        No vouchers assigned to you
+                    </div>`;
+                return;
+            }
+
+            packages.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'pkg-card';
+                div.onclick = () => handleSellClick(p.id, p.name);
+                div.innerHTML = `
+                    <div class="pkg-meta">
+                        <h3>${p.name}</h3>
+                        <span class="price">${Number(p.price).toLocaleString()} UGX</span>
+                        <span class="stock">${p.stock} units in pocket</span>
+                    </div>
+                    <button class="btn-sell-mini">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function renderSales() {
+            const list = document.getElementById('salesList');
+            const viewMoreBtn = document.getElementById('viewMoreBtn');
+            list.innerHTML = '';
+            
+            if (allSales.length === 0) {
+                list.innerHTML = '<div style="text-align: center; color: var(--muted); padding: 40px;">No sales recorded today</div>';
+                viewMoreBtn.style.display = 'none';
+                return;
+            }
+
+            const displaySales = showingAllSales ? allSales : allSales.slice(0, 4);
+            
+            displaySales.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'sale-item';
+                div.innerHTML = `
+                    <div class="sale-info">
+                        <div class="pkg">${s.package_name || 'Voucher'}</div>
+                        <div class="time"><i class="far fa-clock"></i> ${new Date(s.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                    </div>
+                    <div class="sale-price">${Number(s.amount).toLocaleString()} UGX</div>
+                `;
+                list.appendChild(div);
+            });
+
+            if (allSales.length > 4) {
+                viewMoreBtn.style.display = 'block';
+                viewMoreBtn.innerText = showingAllSales ? 'SHOW LESS' : `VIEW ALL ACTIVITY (${allSales.length})`;
+            } else {
+                viewMoreBtn.style.display = 'none';
+            }
+        }
+
+        window.toggleAllSales = () => {
+            showingAllSales = !showingAllSales;
+            renderSales();
+        };
+
+        window.showAlert = (message, type = 'error') => {
+            const modal = document.getElementById('alertModal');
+            const title = document.getElementById('alertTitle');
+            const msg = document.getElementById('alertMessage');
+            const icon = document.getElementById('alertIcon');
+            const iconBox = document.getElementById('alertIconBox');
+
+            title.innerText = type === 'success' ? 'Success' : 'Alert';
+            msg.innerText = message;
+            
+            if (type === 'success') {
+                icon.className = 'fas fa-check-circle';
+                iconBox.style.color = 'var(--success)';
+                iconBox.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                icon.className = 'fas fa-exclamation-triangle';
+                iconBox.style.color = 'var(--danger)';
+                iconBox.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+
+            modal.classList.add('active');
+        };
+
+        window.showConfirm = (title, message, callback) => {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').innerText = title;
+            document.getElementById('confirmMessage').innerText = message;
+            
+            const okBtn = document.getElementById('confirmOkBtn');
+            okBtn.onclick = () => {
+                modal.classList.remove('active');
+                if (callback) callback();
+            };
+
+            modal.classList.add('active');
+        };
+
+        window.openLogoutModal = () => {
+            document.getElementById('logoutModal').classList.add('active');
+        };
+
+        window.confirmLogout = async () => {
+            try {
+                await fetchAuth('/api/logout', { method: 'POST' });
+            } catch (e) {}
+            localStorage.clear();
+            window.location.href = 'login_dashboard.html';
+        };
+
+        window.closeModal = (id) => {
+            document.getElementById(id).classList.remove('active');
+        };
+
+        window.handleSellClick = (id, name) => {
+            showConfirm('Sell Voucher', `Are you sure you want to sell 1x ${name} now?`, () => {
+                sellVoucher(id);
+            });
+        };
+
+        async function sellVoucher(package_id) {
+            // Find the specific card to show loading state if possible, or just use general overlay
+            try {
+                const res = await fetchAuth('/api/agent/sell-voucher', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        package_id: package_id,
+                        phone_number: 'Physical Sale' 
+                    })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    
+                    document.getElementById('revealedCode').innerText = data.voucher.code;
+                    document.getElementById('revealedPkg').innerText = `${data.voucher.name} - ${data.voucher.price} UGX`;
+                    document.getElementById('saleModal').classList.add('active');
+                    updateData();
+                } else {
+                    showAlert(data.error || "Sale failed");
+                }
+            } catch (e) { 
+                showAlert("Server error. Please check your connection."); 
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

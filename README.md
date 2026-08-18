@@ -1,0 +1,102 @@
+# UGPAY / WiPay — Multi-Tenant Wi-Fi Billing System
+
+UGPAY is a robust, multi-tenant Wi-Fi billing and hotspot management system designed for ISPs and hotspot owners in Uganda. The platform enables administrators to register routers, define internet packages (rate limits and session times), generate single-use vouchers, process payments via Mobile Money, and track real-time analytics.
+
+---
+
+## 📂 Repository Structure
+
+The project has three main code directories, separating client-side UI, Node.js services, and Laravel porting:
+
+```text
+WIPAY/
+├── wipay-frontend/          # [FRONTEND] React + Vite SPA Client
+│   └── src/                 # Admin Dashboard & Captive Portal pages
+│
+├── server/                  # [BACKEND] Node.js Express Server (Active)
+│   ├── server.js            # Main entry point (Port 5002)
+│   ├── src/                 # Routes, middleware, database sync
+│   └── scripts/             # DB migration and seed utilities
+│
+└── wipay-backend/           # [PORTING] Laravel PHP + PostgreSQL Backend
+    ├── app/                 # Controllers & Models under migration
+    └── routes/api.php       # PHP routes equivalent
+```
+
+---
+
+## 🚀 Key Features
+
+### 🖥️ Admin Dashboard
+* **Router Isolation & Filtering:** Filter all financial analytics, voucher transactions, and active session charts by specific Router IDs.
+* **Security:** Role-based access control, secure JWT-based authentication, and brute-force rate-limiting on login.
+* **User Experience:** Harmonious dark mode, responsive layout with a collapsible desktop sidebar, and an intuitive mobile hamburger navigation.
+* **Performance:** Client-side route caching to ensure instant, zero-latency switching between dashboard views.
+
+### 💰 Payments & Ledger
+* **Mobile Money Integration:** Accepts automated MTN & Airtel payments via the Relworx Gateway.
+* **Non-Blocking Workflows:** Background polling on the frontend lets admins minimize checkout modals and continue working while payments are processed.
+* **SMS Wallet & Accounting:** Tracks manual voucher prints/SMS transmissions via a transactional `sms_fees` ledger charging 35 UGX per text.
+
+### 🎟️ Access Control & Networking
+* **MikroTik & FreeRADIUS Synchronization:** Automatically syncs voucher credentials to RADIUS (`radcheck` and `radreply` tables) to enforce session timeouts and upload/download limits.
+* **Change of Authorization (CoA):** Instantly terminates active Wi-Fi sessions on physical routers via network PoD (Packet of Disconnect) signals when a voucher is deleted or suspended.
+
+---
+
+## 📖 Key Documentation
+
+For details on architecture, developer onboarding, and design constraints, refer to:
+* **[Onboarding Guide (ONBOARDING_GUIDE.md)](file:///f:/WIPAY/ONBOARDING_GUIDE.md):** Plain-English workflow guides, complete database descriptions, end-to-end user journeys (with sequence diagrams), and email integration details.
+* **[Codebase Master Guide (CODEBASE_GUIDE.md)](file:///f:/WIPAY/CODEBASE_GUIDE.md):** Detailed directory maps, API routing logs, and execution summaries.
+* **[Idempotency & Payouts Guide (IDEMPOTENCY_GUIDE.md)](file:///f:/WIPAY/IDEMPOTENCY_GUIDE.md):** Verification sequences and protection against double-charge scenarios on Relworx disbursements.
+
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+* **Node.js** (v16.x or newer)
+* **PHP** (v8.1.x or newer)
+* **Composer** (v2.x)
+* **MySQL Server** (for Node.js Backend & FreeRADIUS)
+* **PostgreSQL Server** (optional, for Laravel backend)
+
+### Setup & Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository_url>
+   cd WIPAY
+   ```
+
+2. **Configure Node.js Backend:**
+   ```bash
+   cd server
+   npm install
+   # Create a .env file and define DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, RELWORX_API_KEY, and SMTP configuration
+   node scripts/setup_multitenancy.js
+   ```
+
+3. **Configure React Frontend:**
+   ```bash
+   cd ../wipay-frontend
+   npm install
+   ```
+
+---
+
+## ▶️ Running locally
+
+To start the local development environment (React dev client + Node.js backend), run the PowerShell utility script from the repository root:
+
+```powershell
+.\start-dev.ps1
+```
+
+* **Vite React Frontend:** Accessible at `http://localhost:5173`
+* **Node.js Backend Server:** Accessible at `http://localhost:5002` (all `/api` calls from the React frontend are automatically proxied to port 5002 via `vite.config.js`).
+
+---
+
+*Maintained by the Garuga IT Team.*

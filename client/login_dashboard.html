@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UGPAY Login</title>
+    <link rel="icon" type="image/png" href="img/favicon.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/login.css">
+    <script>
+        // Auto-Redirect check
+        // Auto-Redirect check
+        (function () {
+            // REMOVED: potentially causes loops if cookies fail but localStorage persists.
+            // Users must strictly log in.
+            // const role = localStorage.getItem('wipay_role');
+            // if (role) { ... }
+        })();
+    </script>
+</head>
+
+<body>
+
+    <div id="loginError" class="login-error"></div>
+
+    <div class="login-container">
+        <!-- Avatar / Logo -->
+        <div class="avatar">
+            <img src="img/favicon.png" alt="UGPAY Logo">
+        </div>
+
+        <!-- Login Form -->
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="input-group">
+                <i class="fas fa-user"></i>
+                <input type="text" id="username" placeholder="Enter Username" required>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-lock"></i>
+                <input type="password" id="password" placeholder="Password" required>
+            </div>
+
+            <div class="actions">
+                <label class="remember-me">
+                    <input type="checkbox"> Remember me
+                </label>
+                <a href="#" class="forgot-pass" onclick="showError('Please contact support to reset password.')">Forgot
+                     Password?</a>
+            </div>
+
+            <button type="submit" class="login-btn">Login</button>
+        </form>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script>
+        function showError(msg) {
+            const errorDiv = document.getElementById('loginError');
+            const btn = document.querySelector('.login-btn');
+
+            errorDiv.textContent = msg;
+            errorDiv.style.display = 'block';
+            btn.textContent = 'Login';
+
+            // Auto hide after 3 seconds
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+            const btn = document.querySelector('.login-btn');
+
+            // Reset UI
+            document.getElementById('loginError').style.display = 'none';
+            btn.textContent = 'Logging in...';
+
+            // Real Authentication
+            fetch(`${CONFIG.API_BASE_URL}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ username: user, password: pass })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.token) {
+                        // Success
+                        btn.textContent = 'Success!';
+                        btn.style.background = '#2ecc71';
+
+                        // Store User Info & Token
+                        localStorage.setItem('wipay_token', data.token);
+                        localStorage.setItem('wipay_role', data.role);
+                        localStorage.setItem('wipay_user', JSON.stringify({
+                            username: data.username,
+                            role: data.role
+                        }));
+
+                        setTimeout(() => {
+                            if (data.role === 'super_admin') {
+                                window.location.href = 'super_dashboard.html';
+                            } else if (data.role === 'agent') {
+                                window.location.href = 'agent.html';
+                            } else {
+                                window.location.href = 'dashboard.html';
+                            }
+                        }, 800);
+                    } else {
+                        // Fail
+                        showError(data.error || 'Invalid username or password');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    showError('Connection Error. Please try again.');
+                });
+        }
+    </script>
+</body>
+
+</html>

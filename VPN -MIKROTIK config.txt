@@ -1,0 +1,18 @@
+Now, go to your Mikrotik Router -> WireGuard and add this:
+
+--- INTERFACE SETTINGS ---
+Name: wireguard-vps
+Private Key: 2M9bwPT5fbRglOK2wLXseBklOQtFRPxlQhmGy4U14FY=
+Listen Port: 13231
+
+--- PEAR SETTINGS (Click + Peer) ---
+Public Key: /SZRfgd+z/XJD8YRavd89EM3FTKGhKExq0GzhfHRbC4=
+Endpoint: 2a02:c207:2300:2126::1
+Endpoint Port: 51820
+Allowed Address: 10.66.66.0/24
+Persistent Keepalive: 25
+
+--- IP ADDRESS SETTINGS ---
+Address: 10.66.66.2/24
+Network: 10.66.66.0
+Interface: wireguard-vps

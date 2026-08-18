@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connecting to UGPAY...</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 32px 24px;
+            max-width: 360px;
+            width: 100%;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(59, 130, 246, 0.2);
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #f8fafc;
+        }
+        p {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            line-height: 1.5;
+        }
+        .fallback-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #3b82f6;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        .fallback-btn:hover {
+            background-color: #2563eb;
+        }
+    </style>
+    <script>
+        (function() {
+            // 1. Extract MikroTik Hotspot Variables
+            var linkLoginOnly = "$(link-login-only)";
+            var mac           = "$(mac)";
+            var ip            = "$(ip)";
+            var linkOrig      = "$(link-orig)";
+            var error         = "$(error)";
+
+            // 2. Build Target Central Captive Portal URL (Multi-Tenant Slug Support)
+            var portalSlug = "garuga"; // Set automatically per admin
+            var targetUrl = "https://wifi.ugpay.tech/captive-portal" + 
+                "?slug="       + encodeURIComponent(portalSlug) +
+                "&link-login=" + encodeURIComponent(linkLoginOnly) + 
+                "&mac="        + encodeURIComponent(mac) + 
+                "&ip="         + encodeURIComponent(ip) + 
+                "&link-orig="  + encodeURIComponent(linkOrig);
+
+            if (error) {
+                targetUrl += "&error=" + encodeURIComponent(error);
+            }
+
+            // 3. Immediate Auto-Redirect
+            window.location.href = targetUrl;
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>Connecting to WiPay...</h2>
+        <p>Please wait while we redirect you to the payment portal.</p>
+        <a id="manual-link" class="fallback-btn" href="#">Click here if not redirected</a>
+    </div>
+
+    <script>
+        // Fallback manual click handler
+        var linkLoginOnly = "$(link-login-only)";
+        var mac = "$(mac)";
+        var ip = "$(ip)";
+        var linkOrig = "$(link-orig)";
+        var manualUrl = "https://wifi.ugpay.tech/captive-portal" + 
+            "?link-login=" + encodeURIComponent(linkLoginOnly) + 
+            "&mac=" + encodeURIComponent(mac) + 
+            "&ip=" + encodeURIComponent(ip) + 
+            "&link-orig=" + encodeURIComponent(linkOrig);
+        document.getElementById('manual-link').href = manualUrl;
+    </script>
+</body>
+</html>

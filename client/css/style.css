@@ -1,0 +1,594 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    /* Brand Colors */
+    --primary-green: #00e676;
+    /* Neon Green */
+    --primary-green-dark: #00b359;
+    --primary-bg: #1a1a2e;
+    /* Deep Blue/Black */
+
+    /* Glass Effect */
+    --glass-bg: rgba(26, 26, 46, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    /* Subtle border */
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+    /* Text */
+    --text-white: #ffffff;
+    --text-muted: #b0b3b8;
+
+    /* Gradients */
+    --gradient-bg: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+    --gradient-dark: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    /* Deep mesh fallback */
+}
+
+/* --- Base --- */
+body {
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    color: var(--text-white);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow-x: hidden;
+
+    /* Premium Animated Background */
+    background: linear-gradient(-45deg, #121212, #1a237e, #004d40, #1b5e20);
+    background-size: 400% 400%;
+    animation: gradientBG 15s ease infinite;
+}
+
+@keyframes gradientBG {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+/* --- Container (Glass Card) --- */
+.container {
+    background: rgba(255, 255, 255, 0.03);
+    /* Extremely subtle fill */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    padding: 2.5rem;
+    border-radius: 24px;
+    width: 90%;
+    max-width: 420px;
+    /* Slightly narrower for mobile feel */
+    text-align: center;
+    position: relative;
+    z-index: 10;
+    margin: 20px 0;
+
+    /* Intro Animation */
+    animation: slideUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpFade {
+    0% {
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* --- Header --- */
+header {
+    margin-bottom: 2rem;
+}
+
+.wifi-icon-img {
+    width: 70px;
+    height: auto;
+    margin-bottom: 1rem;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    filter: drop-shadow(0 0 15px rgba(0, 230, 118, 0.4));
+    /* Neon Glow */
+}
+
+header h1 {
+    font-size: 1.8rem;
+    margin: 0 0 0.5rem 0;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(to right, #ffffff, #b0b3b8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+header p {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-top: 0;
+    font-weight: 400;
+}
+
+/* --- Input Sections --- */
+.section-card {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 16px;
+    padding: 6px;
+    /* Inner padding for pill shape */
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: transform 0.2s, background 0.2s;
+}
+
+.section-card:focus-within {
+    background: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.free-trial {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    color: var(--text-white);
+}
+
+.trial-btn {
+    background: transparent;
+    border: 1px solid var(--primary-green);
+    color: var(--primary-green);
+    padding: 6px 16px;
+    border-radius: 99px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.trial-btn:hover {
+    background: var(--primary-green);
+    color: #000;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.voucher-section input {
+    width: 100%;
+    padding: 14px 20px;
+    background: transparent;
+    border: none;
+    color: white;
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 500;
+    outline: none;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 1px;
+}
+
+.voucher-section input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+    font-weight: 400;
+    letter-spacing: 0;
+}
+
+/* --- Main Button --- */
+.connect-btn {
+    width: 100%;
+    padding: 16px;
+    background: #00e676;
+    color: #003300;
+    /* Dark green text for contrast */
+    border: none;
+    border-radius: 16px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 2rem;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.connect-btn:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    background: #00ff82;
+}
+
+.connect-btn:active {
+    transform: scale(0.98);
+}
+
+/* --- Payment Methods --- */
+.payment-methods {
+    margin-bottom: 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 1.5rem;
+}
+
+.payment-methods p {
+    font-size: 0.75rem;
+    margin-bottom: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.method-logos {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.method-badge {
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.mtn {
+    border-bottom: 3px solid #ffcc00;
+}
+
+.airtel {
+    border-bottom: 3px solid #ff0000;
+}
+
+/* --- Packages Grid --- */
+.packages-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 2rem;
+}
+
+.package-row {
+    background: rgba(255, 255, 255, 0.05);
+    /* Slight fill */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s;
+}
+
+.package-row:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateX(4px);
+}
+
+.pkg-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-white);
+    text-align: left;
+}
+
+.pkg-price {
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: var(--primary-green);
+    background: rgba(0, 230, 118, 0.1);
+    /* Tiny badge bg */
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.pay-btn-ref {
+    background: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    color: #000;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.pay-btn-ref:hover {
+    background: var(--primary-green);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* --- Footer --- */
+.info-footer {
+    margin-top: 2rem;
+    font-size: 0.85rem;
+    color: var(--text-white);
+    line-height: 1.5;
+}
+
+.info-footer strong {
+    color: var(--text-white);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+}
+
+/* --- Modals (Modernized) --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    /* Deeper blur */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 5000;
+}
+
+.modal-content {
+    background: #1e1e24;
+    /* Solid dark specifically for modal readability */
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 2rem;
+    border-radius: 20px;
+    width: 85%;
+    max-width: 380px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    position: relative;
+    text-align: center;
+    animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalPop {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.modal-content h2 {
+    color: var(--text-white);
+    margin: 0 0 10px;
+    font-size: 1.25rem;
+}
+
+.modal-content p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 24px;
+}
+
+.input-group {
+    margin-bottom: 24px;
+}
+
+.modal-content input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 16px;
+    border-radius: 12px;
+    width: 100%;
+    font-size: 1.1rem;
+    text-align: center;
+    outline: none;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+}
+
+.modal-content input:focus {
+    border-color: var(--primary-green);
+    box-shadow: 0 0 0 2px rgba(0, 230, 118, 0.2);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.modal-actions .btn {
+    flex: 1;
+    padding: 14px;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.95rem;
+    border: none;
+}
+
+.modal-actions .secondary-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-white);
+}
+
+.modal-actions .primary-btn {
+    background: var(--primary-green);
+    color: #000;
+}
+
+.close-modal-btn {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 2rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.close-modal-btn:hover {
+    color: #ffffff;
+}
+
+/* --- Toast --- */
+.popup-toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 20, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 14px 28px;
+    border-radius: 99px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    z-index: 6000;
+    font-weight: 500;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    animation: slideDownToast 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDownToast {
+    from {
+        top: -60px;
+        opacity: 0;
+    }
+
+    to {
+        top: 24px;
+        opacity: 1;
+    }
+}
+
+/* --- Mobile Fixes --- */
+/* --- Mobile Fixes --- */
+@media (max-width: 600px) {
+    .container {
+        padding: 2rem 1.5rem;
+        width: 85%;
+    }
+
+    header h1 {
+        font-size: 1.6rem;
+    }
+
+    .package-row {
+        grid-template-columns: 1fr auto auto;
+        padding: 10px 14px;
+    }
+
+    .pkg-name {
+        font-size: 0.9rem;
+    }
+
+    .pay-btn-ref {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+}
+
+/* --- Restored Payment Progress Overlay (Missing in previous edit) --- */
+.payment-progress-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(5px);
+}
+
+.progress-container {
+    width: 80%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.progress-text {
+    color: white;
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+    font-weight: 600;
+}
+
+.progress-bar-track {
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ffeb3b, #ff9800);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.progress-bar-fill.indeterminate {
+    width: 50%;
+    animation: progressIndeterminate 1.5s infinite ease-in-out;
+}
+
+@keyframes progressIndeterminate {
+    0% {
+        transform: translateX(-150%);
+    }
+
+    100% {
+        transform: translateX(250%);
+    }
+}
+
+/* --- Interaction Safeguards --- */
+.container {
+    z-index: 100;
+    /* Force above background */
+    position: relative;
+}
+
+input,
+button,
+.pay-btn-ref,
+.trial-btn {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 101;
+    /* Force above container */
+}
+
+/* --- Utilities --- */
+.hidden {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
