@@ -117,6 +117,7 @@ PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING 
         execSync(`sudo wg-quick strip wg0 > /tmp/wg0.stripped && sudo wg syncconf wg0 /tmp/wg0.stripped && rm -f /tmp/wg0.stripped`, { shell: '/bin/bash' });
         
         console.log("[VPN] WireGuard configuration successfully rebuilt and synced.");
+        await syncIptablesPortForwarding().catch(() => {});
         return true;
     } catch (err) {
         console.error("[VPN] Rebuild and Sync Config Error:", err.message);
@@ -125,8 +126,75 @@ PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING 
     }
 }
 
+/**
+ * Automatically syncs iptables NAT port-forwarding rules for WinBox and WebFig 
+ * for all connected routers in the database.
+ */
+async function syncIptablesPortForwarding() {
+    try {
+        const [routers] = await db.query(
+            "SELECT id, ip_address FROM routers WHERE ip_address LIKE '10.66.66.%'"
+        );
+
+        let commands = [
+            "sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1",
+            "sudo iptables -t nat -F PREROUTING 2>/dev/null || true"
+        ];
+
+        for (const r of routers) {
+            const winboxPort = 8290 + (r.id % 100 || 1);
+            const webfigPort = 8080 + (r.id % 100 || 1);
+
+            commands.push(`sudo iptables -t nat -A PREROUTING -p tcp --dport ${winboxPort} -j DNAT --to-destination ${r.ip_address}:8291`);
+            commands.push(`sudo iptables -t nat -A PREROUTING -p tcp --dport ${webfigPort} -j DNAT --to-destination ${r.ip_address}:80`);
+
+            if (r.id === 22 || r.ip_address === '10.66.66.2') {
+                commands.push(`sudo iptables -t nat -A PREROUTING -p tcp --dport 8291 -j DNAT --to-destination ${r.ip_address}:8291`);
+            }
+        }
+
+        commands.push("sudo iptables -t nat -A POSTROUTING -d 10.66.66.0/24 -j MASQUERADE 2>/dev/null || true");
+        commands.push("sudo netfilter-persistent save >/dev/null 2>&1 || true");
+
+        const fullCmd = commands.join(" && ");
+        execSync(fullCmd, { shell: '/bin/bash', stdio: ['pipe', 'pipe', 'ignore'] });
+        console.log("[VPN] Auto iptables remote access port-forwarding synced successfully.");
+        return true;
+    } catch (err) {
+        console.warn("[VPN] iptables sync warning (normal in Windows dev):", err.message);
+        return false;
+    }
+}
+
+/**
+ * Reads WireGuard peer statuses from kernel via `wg show wg0 dump`.
+ * Returns Map of { publicKey => unixTimestampOfLastHandshake }
+ */
+function getWireGuardPeerStatus() {
+    const peerStatus = new Map();
+    try {
+        const output = execSync('sudo wg show wg0 dump', { stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+        const lines = output.trim().split('\n');
+        for (const line of lines) {
+            const parts = line.split('\t');
+            if (parts.length >= 5) {
+                const pubKey = parts[0];
+                const lastHandshake = parseInt(parts[4], 10);
+                if (pubKey && !isNaN(lastHandshake)) {
+                    peerStatus.set(pubKey, lastHandshake);
+                }
+            }
+        }
+    } catch (err) {
+        // Fallback for dev environments without WireGuard binary
+    }
+    return peerStatus;
+}
+
 module.exports = {
     generateWgKeys,
     allocateVpnIp,
-    rebuildWireGuardConfig
+    rebuildWireGuardConfig,
+    syncIptablesPortForwarding,
+    getWireGuardPeerStatus
 };

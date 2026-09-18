@@ -5,9 +5,14 @@ import {
   Upload, X, ArrowRight, Check, AlertCircle, RefreshCw 
 } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
+import { useLocation } from 'react-router-dom'
 
 export default function Withdraw() {
+  const location = useLocation()
   const { showToast } = useToast()
+  const { admin } = useAuth()
+  const isSuperAdmin = admin?.role === 'super_admin'
   const [stats, setStats] = useState({
     net_balance: 0,
     total_revenue: 0,
@@ -27,6 +32,23 @@ export default function Withdraw() {
   const [step, setStep] = useState('form') // form -> otp -> feedback
   const [actionLoading, setActionLoading] = useState(false)
   const [feedback, setFeedback] = useState({ success: false, message: '' })
+  const [cooldown, setCooldown] = useState(0)
+
+  useEffect(() => {
+    let timer
+    if (cooldown > 0) {
+      timer = setInterval(() => {
+        setCooldown(prev => (prev > 0 ? prev - 1 : 0))
+      }, 1000)
+    }
+    return () => clearInterval(timer)
+  }, [cooldown])
+
+  const formatTimer = (sec) => {
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return `${m}:${s < 10 ? '0' : ''}${s}`
+  }
 
   const fetchStatsAndHistory = async () => {
     try {
@@ -52,10 +74,14 @@ export default function Withdraw() {
 
   useEffect(() => {
     fetchStatsAndHistory()
-  }, [])
+    const searchParams = new URLSearchParams(location.search)
+    if (searchParams.get('open') === 'true' || searchParams.get('modal') === 'true' || location.state?.openModal) {
+      setModalOpen(true)
+    }
+  }, [location])
 
   const initiateWithdrawal = async (e) => {
-    e.preventDefault()
+    if (e) e.preventDefault()
     if (!amount || !phone) return
     
     const numAmount = Number(amount)
@@ -71,11 +97,13 @@ export default function Withdraw() {
 
     setActionLoading(true)
     try {
-      await api.post('/admin/withdraw/initiate', {
+      const res = await api.post('/admin/withdraw/initiate', {
         amount: numAmount,
         phone_number: phone
       })
+      setCooldown(res.data?.cooldown || 300)
       setStep('otp')
+      showToast(res.data?.message || 'OTP sent to your email.', 'success')
     } catch (e) {
       showToast(e.response?.data?.error || e.response?.data?.message || 'Failed to initiate withdrawal', 'error')
     } finally {
@@ -198,11 +226,11 @@ export default function Withdraw() {
 
       {/* Stats Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Card 1: Mobile Money Sales Balance */}
+        {/* Card 1: Mobile Money / Platform Balance */}
         <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[140px]">
           <div>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">
-              Mobile Money Sales Balance
+              {isSuperAdmin ? 'Platform Commission & Subscriptions' : 'Mobile Money Sales Balance'}
             </span>
             <span className="text-2xl font-bold text-gray-900">
               USh {Number(stats.net_balance).toLocaleString()}
@@ -210,7 +238,7 @@ export default function Withdraw() {
           </div>
           <div className="flex items-center justify-between mt-4 z-10">
             <span className="text-[11px] font-semibold text-primary-600 flex items-center gap-1">
-              Mobile Money balance ready to withdraw
+              {isSuperAdmin ? 'Platform earnings ready to withdraw' : 'Mobile Money balance ready to withdraw'}
             </span>
             <div className="w-6 h-6 bg-primary-50 rounded flex items-center justify-center text-primary-500">
               <Wallet className="w-3.5 h-3.5" />
@@ -242,11 +270,11 @@ export default function Withdraw() {
           </div>
         </div>
 
-        {/* Card 3: Total Online Earnings */}
+        {/* Card 3: Total Earnings / Revenue */}
         <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between min-h-[140px]">
           <div>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">
-              Total Online Earnings
+              {isSuperAdmin ? 'Total Platform Earnings' : 'Total Online Earnings'}
             </span>
             <span className="text-2xl font-bold text-gray-900">
               USh {Number(stats.total_revenue).toLocaleString()}
@@ -254,7 +282,7 @@ export default function Withdraw() {
           </div>
           <div className="flex items-center justify-between mt-4">
             <span className="text-[11px] font-semibold text-amber-800 flex items-center gap-1">
-              Lifetime online collections
+              {isSuperAdmin ? 'Lifetime tenant commissions & subscriptions' : 'Lifetime online collections'}
             </span>
             <div className="w-6 h-6 bg-amber-50 rounded flex items-center justify-center text-amber-600">
               <Banknote className="w-3.5 h-3.5" />
@@ -474,6 +502,25 @@ export default function Withdraw() {
                       required
                       className="w-full text-center tracking-[0.5em] font-mono text-lg px-3.5 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                     />
+                  </div>
+
+                  {/* 5-Minute Resend Cooldown Counter */}
+                  <div className="text-center text-xs text-gray-500 py-2 px-3 bg-gray-50 rounded-lg border border-gray-100">
+                    {cooldown > 0 ? (
+                      <span className="text-gray-600 font-medium flex items-center justify-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                        Resend OTP available in <span className="font-mono font-bold text-gray-900">{formatTimer(cooldown)}</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={initiateWithdrawal}
+                        disabled={actionLoading}
+                        className="text-primary-600 hover:text-primary-700 font-bold underline cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" /> Resend OTP Code
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex gap-3 mt-4">

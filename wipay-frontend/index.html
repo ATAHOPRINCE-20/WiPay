@@ -2,9 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>UGPAY — WiFi Billing Dashboard</title>
-    <meta name="description" content="UGPAY centralized WiFi billing dashboard. Manage packages, vouchers, payments and FreeRADIUS sessions." />
+    <meta name="description" content="UGPAY centralized WiFi billing dashboard & captive portal manager for Uganda." />
+    
+    <!-- PWA Web App Manifest & iOS Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/png" href="/img/favicon.png" />
+    <link rel="apple-touch-icon" href="/img/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/img/favicon.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -12,5 +23,31 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            reg.onupdatefound = () => {
+              const installingWorker = reg.installing;
+              if (installingWorker) {
+                installingWorker.onstatechange = () => {
+                  if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    console.log('New update available. Purging cache and reloading...');
+                    if ('caches' in window) {
+                      caches.keys().then((names) => {
+                        for (let name of names) caches.delete(name);
+                      });
+                    }
+                    window.location.reload();
+                  }
+                };
+              }
+            };
+          }).catch((err) => {
+            console.warn('Service Worker registration failed:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

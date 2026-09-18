@@ -14,7 +14,9 @@ export default function WebConfigs() {
     portal_dns: '',
     portal_welcome_msg: '',
     terms_text: '',
-    portal_logo: ''
+    portal_logo: '',
+    portal_theme: 'default',
+    primary_color: '#6366f1'
   })
   const [logoFile, setLogoFile] = useState(null)
 
@@ -28,7 +30,9 @@ export default function WebConfigs() {
         portal_dns: data.portal_dns || '',
         portal_welcome_msg: data.portal_welcome_msg || '',
         terms_text: data.terms_text || '',
-        portal_logo: data.portal_logo || ''
+        portal_logo: data.portal_logo || '',
+        portal_theme: data.portal_theme || 'default',
+        primary_color: data.primary_color || '#6366f1'
       })
     } catch (_) {}
     setLoading(false)
@@ -49,9 +53,11 @@ export default function WebConfigs() {
         business_phone: configs.business_phone,
         portal_dns: configs.portal_dns,
         portal_welcome_msg: configs.portal_welcome_msg,
-        terms_text: configs.terms_text
+        terms_text: configs.terms_text,
+        portal_theme: configs.portal_theme,
+        primary_color: configs.primary_color
       })
-      setSuccessMsg('Branding and settings updated successfully!')
+      setSuccessMsg('Branding, theme, and settings updated successfully!')
       setTimeout(() => setSuccessMsg(''), 3000)
     } catch (err) {
       setErrorMsg(err.response?.data?.error || 'Failed to update configurations.')
@@ -171,6 +177,37 @@ export default function WebConfigs() {
               />
             </div>
 
+            {/* Captive Portal Theme Selection */}
+            <div className="pt-3 border-t border-gray-100">
+              <label className="block text-xs font-semibold text-gray-700 mb-2 flex items-center justify-between">
+                <span>Captive Portal Theme Preset</span>
+                <span className="text-[11px] text-gray-400 font-normal">Choose visual theme for hotspot login page</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { id: 'default', name: 'Default Light', bg: 'bg-slate-100 border-slate-200 text-slate-900', btn: 'bg-indigo-600' },
+                  { id: 'glass', name: 'Glassmorphism', bg: 'bg-gradient-to-tr from-indigo-950 via-purple-950 to-slate-950 border-white/30 text-white backdrop-blur-md', btn: 'bg-cyan-400' },
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setConfigs(p => ({ ...p, portal_theme: t.id }))}
+                    className={`p-3 rounded-xl border-2 text-left transition-all relative overflow-hidden flex flex-col justify-between h-20 ${t.bg} ${
+                      configs.portal_theme === t.id ? 'ring-2 ring-primary-500 border-primary-500 shadow-md scale-[1.02]' : 'opacity-80 hover:opacity-100'
+                    }`}
+                  >
+                    <span className="text-xs font-bold truncate">{t.name}</span>
+                    <div className="flex items-center justify-between w-full mt-2">
+                      <span className={`w-3.5 h-3.5 rounded-full ${t.btn} inline-block shadow-xs`} />
+                      {configs.portal_theme === t.id && (
+                        <span className="text-[9px] font-bold text-primary-600 bg-white px-1.5 py-0.5 rounded-full uppercase shadow-xs">Selected</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <button type="submit" disabled={saving} className="btn-primary flex items-center gap-2 text-sm justify-center">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save Settings
             </button>
@@ -218,6 +255,34 @@ export default function WebConfigs() {
                 disabled={uploading} 
               />
             </label>
+          </div>
+
+          {/* Live Portal Theme Preview */}
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Live Portal Theme Preview</h4>
+            <div className={`p-4 rounded-2xl border transition-all ${
+              configs.portal_theme === 'glass' 
+                ? 'bg-gradient-to-tr from-slate-950 via-indigo-950 to-purple-950 text-white border-white/20 shadow-xl' 
+                : 'bg-slate-50 border-gray-200 text-gray-900 shadow-xs'
+            }`}>
+              <div className="text-center space-y-1 mb-3">
+                <p className="text-xs font-extrabold">{configs.business_name || 'UGPAY'}</p>
+                <p className="text-[10px] opacity-70">{configs.portal_welcome_msg || 'Stay online, Stay informed'}</p>
+              </div>
+              <div className={`p-3 rounded-xl text-center space-y-2 ${
+                configs.portal_theme === 'glass' ? 'bg-white/10 backdrop-blur-md border border-white/15' : 'bg-white border border-gray-100 shadow-xs'
+              }`}>
+                <p className="text-[10px] opacity-80">Enter voucher code</p>
+                <div className={`py-1.5 px-3 rounded-lg text-xs font-bold ${
+                  configs.portal_theme === 'glass' ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950' : 'bg-indigo-600 text-white'
+                }`}>
+                  Connect to Wi-Fi
+                </div>
+              </div>
+              <p className="text-[9px] text-center mt-3 opacity-60 font-bold uppercase tracking-wider">
+                Powered by UgPay
+              </p>
+            </div>
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { Wifi, Loader2, Check, ArrowRight, ArrowLeft, Mail, ShieldAlert, Eye, EyeOff } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
+import { safeLocalStorage } from '../utils/safeStorage'
 
 export default function Register() {
   const { showToast } = useToast()
@@ -110,8 +111,8 @@ export default function Register() {
       })
 
       // Store credentials and login session
-      localStorage.setItem('wipay_token', data.token)
-      localStorage.setItem('wipay_admin', JSON.stringify(data.admin))
+      safeLocalStorage.setItem('wipay_token', data.token)
+      safeLocalStorage.setItem('wipay_admin', JSON.stringify(data.admin))
       
       await refreshProfile()
       navigate('/dashboard')

@@ -1,3 +1,4 @@
+require('../utils/patchRouterOS');
 const { RouterOSClient } = require('node-routeros');
 require('dotenv').config();
 
@@ -18,6 +19,7 @@ async function getClient() {
     }
 
     client = new RouterOSClient(config);
+    client.on('error', () => {});
 
     try {
         await client.connect();

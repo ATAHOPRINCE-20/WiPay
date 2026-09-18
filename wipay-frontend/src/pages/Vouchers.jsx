@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
-import { Plus, Download, Trash2, Loader2, Tag, Send, X, Printer, CheckSquare, Square, Wifi } from 'lucide-react'
+import { Plus, Download, Trash2, Loader2, Tag, Send, X, Printer, CheckSquare, Square, Wifi, Unlink, Router, MoreVertical } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import ConfirmModal from '../components/ConfirmModal'
@@ -8,18 +8,24 @@ import ConfirmModal from '../components/ConfirmModal'
 export default function Vouchers() {
   const { showToast } = useToast()
   const { admin } = useAuth()
+
+  const isSubscriptionTenant = admin?.role === 'admin' && admin?.billing_type === 'subscription'
+  const isExpired = isSubscriptionTenant && admin?.subscription_expiry && new Date(admin.subscription_expiry) < new Date()
   const [vouchers, setVouchers]     = useState([])
   const [packages, setPackages]     = useState([])
+  const [routers, setRouters]       = useState([])
   const [loading, setLoading]       = useState(true)
   const [modal, setModal]           = useState(false)
   const [sellModal, setSellModal]   = useState(false)
   const [printModal, setPrintModal] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [confirmUnbindVoucher, setConfirmUnbindVoucher] = useState(null)
   const [confirmBulk, setConfirmBulk]         = useState(false)
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState('')
   const [sellForm, setSellForm]     = useState({ package_id: '', phone_number: '' })
   const [filterPkg, setFilterPkg]   = useState('')
+  const [filterRouter, setFilterRouter] = useState('')
   const [filterUsed, setFilterUsed] = useState('')
   const [agents, setAgents]         = useState([])
   const [form, setForm]             = useState({ package_id: '', quantity: 10, prefix: '', code_length: 8, char_type: 'upper_num', is_giveaway: false, batch_ref: '', agent_id: '' })
@@ -32,19 +38,36 @@ export default function Vouchers() {
     setLoading(true)
     const params = {}
     if (filterPkg)  params.package_id = filterPkg
+    if (filterRouter) params.router_id = filterRouter
     if (filterUsed !== '') params.is_used = filterUsed
-    const [v, p, a] = await Promise.all([
+    const [v, p, a, r] = await Promise.all([
       api.get('/admin/vouchers', { params }), 
       api.get('/admin/packages'),
-      api.get('/admin/agents')
+      api.get('/admin/agents'),
+      api.get('/admin/routers')
     ])
     setVouchers(Array.isArray(v.data) ? v.data : (v.data.data || []))
     setPackages(Array.isArray(p.data) ? p.data : [])
     setAgents(Array.isArray(a.data) ? a.data : [])
+    setRouters(Array.isArray(r.data) ? r.data : [])
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [filterPkg, filterUsed])
+  useEffect(() => { load() }, [filterPkg, filterRouter, filterUsed])
+
+  const executeUnbindDevice = async () => {
+    if (!confirmUnbindVoucher) return
+    try {
+      const { data } = await api.post('/admin/vouchers/unbind-device', { voucher_id: confirmUnbindVoucher.id, code: confirmUnbindVoucher.code })
+      showToast(data.message || `Device unbound from voucher '${confirmUnbindVoucher.code}'. Voucher can now be used on a new device.`, 'success')
+      if (selectedRow?.id === confirmUnbindVoucher.id) setSelectedRow(null)
+      load()
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to unbind device from voucher.', 'error')
+    } finally {
+      setConfirmUnbindVoucher(null)
+    }
+  }
 
   const generate = async (e) => {
     e.preventDefault(); setSaving(true); setError('')
@@ -115,6 +138,21 @@ export default function Vouchers() {
     window.open(`/api/admin/vouchers/export?package_id=${filterPkg}`, '_blank')
   }
 
+  const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false)
+
+  const executeDeleteSelected = async () => {
+    if (selectedIds.length === 0) return
+    try {
+      const { data } = await api.post('/admin/vouchers/delete-selected', { ids: selectedIds })
+      setSelectedIds([])
+      load()
+      showToast(data.message || 'Selected vouchers deleted successfully.', 'success')
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to delete selected vouchers.', 'error')
+    }
+    setConfirmDeleteSelected(false)
+  }
+
   const toggleSelectAll = () => {
     if (selectedIds.length === vouchers.length) {
       setSelectedIds([])
@@ -148,10 +186,15 @@ export default function Vouchers() {
   const formatValidity = (pkg) => {
     if (!pkg) return 'Unlimited'
     if (pkg.validity_unit === 'minutes' && pkg.validity_minutes > 0) return `${pkg.validity_minutes}m`
-    if (pkg.validity_hours > 0) {
-      if (pkg.validity_hours < 1) return `${Math.round(pkg.validity_hours * 60)}m`
-      return `${pkg.validity_hours}h`
+    const hours = parseFloat(pkg.validity_hours || 0)
+    if (hours > 0) {
+      if (hours >= 720 && hours % 720 === 0) return `${hours / 720} Mo`
+      if (hours >= 168 && hours % 168 === 0) return `${hours / 168} Wk`
+      if (hours >= 24 && hours % 24 === 0) return `${hours / 24} Days`
+      if (hours < 1) return `${Math.round(hours * 60)}m`
+      return `${hours}h`
     }
+    if (pkg.validity_minutes > 0) return `${pkg.validity_minutes}m`
     return 'Unlimited'
   }
 
@@ -203,12 +246,16 @@ export default function Vouchers() {
 
       {/* Filters & Selection Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-        <div className="flex items-center gap-3">
-          <select className="input max-w-[200px]" value={filterPkg} onChange={e => setFilterPkg(e.target.value)}>
+        <div className="flex flex-wrap items-center gap-3">
+          <select className="input max-w-[180px]" value={filterRouter} onChange={e => setFilterRouter(e.target.value)}>
+            <option value="">All Routers (Global)</option>
+            {routers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <select className="input max-w-[180px]" value={filterPkg} onChange={e => setFilterPkg(e.target.value)}>
             <option value="">All Packages</option>
             {packages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <select className="input max-w-[160px]" value={filterUsed} onChange={e => setFilterUsed(e.target.value)}>
+          <select className="input max-w-[150px]" value={filterUsed} onChange={e => setFilterUsed(e.target.value)}>
             <option value="">All Status</option>
             <option value="0">Unused Only</option>
             <option value="1">Used Only</option>
@@ -221,9 +268,18 @@ export default function Vouchers() {
             {selectedIds.length === vouchers.length && vouchers.length > 0 ? 'Deselect All' : 'Select All'}
           </button>
           {selectedIds.length > 0 && (
-            <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg border border-primary-100">
-              {selectedIds.length} Selected
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg border border-primary-100">
+                {selectedIds.length} Selected
+              </span>
+              <button 
+                onClick={() => setConfirmDeleteSelected(true)}
+                className="btn-secondary text-red-600 border-red-200 hover:bg-red-50 text-xs px-3 py-1.5 flex items-center gap-1.5 font-medium"
+                title="Permanently remove selected vouchers from Database & FreeRADIUS"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Selected ({selectedIds.length})
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -233,8 +289,8 @@ export default function Vouchers() {
         {loading ? (
           <div className="flex items-center justify-center h-40"><Loader2 className="w-6 h-6 animate-spin text-primary-400" /></div>
         ) : (
-          <div className="overflow-y-auto max-h-[65vh]">
-            <table className="w-full text-sm text-left table-fixed sm:table-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+            <table className="w-full text-sm text-left min-w-[500px]">
               <thead className="sticky top-0 bg-gray-50/95 backdrop-blur-sm z-10 border-b border-gray-100 shadow-sm">
                 <tr>
                   <th className="w-10 px-3 py-3 text-center">
@@ -245,13 +301,13 @@ export default function Vouchers() {
                       className="rounded text-primary-500 focus:ring-primary-400 cursor-pointer"
                     />
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Code</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Package</th>
-                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Used By</th>
-                  <th className="hidden xl:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Used At</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16"></th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Code</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Package</th>
+                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Price</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Status</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Used By</th>
+                  <th className="hidden xl:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Used At</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-12 md:w-16">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -295,10 +351,30 @@ export default function Vouchers() {
                     </td>
                     <td className="hidden md:table-cell px-4 py-3 text-gray-400 text-xs truncate">{v.used_by || '—'}</td>
                     <td className="hidden xl:table-cell px-4 py-3 text-gray-400 text-xs truncate">{v.used_at ? new Date(v.used_at).toLocaleString() : '—'}</td>
-                    <td className="hidden md:table-cell px-4 py-3 text-right">
-                      <button onClick={(e) => { e.stopPropagation(); remove(v.id) }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete Voucher">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+                        <div className="hidden md:flex items-center justify-end gap-1">
+                          {v.used_by && (
+                            <button 
+                              onClick={() => setConfirmUnbindVoucher(v)} 
+                              className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition" 
+                              title="Unbind Device (Clear MAC so voucher can be used on a new phone/laptop)"
+                            >
+                              <Unlink className="w-3.5 h-3.5 text-amber-600" />
+                            </button>
+                          )}
+                          <button onClick={() => remove(v.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete Voucher">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <button 
+                          onClick={() => setSelectedRow(v)}
+                          className="md:hidden p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition border border-gray-200 shadow-xs"
+                          title="Voucher Actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -457,22 +533,36 @@ export default function Vouchers() {
             </div>
 
             {/* Actions */}
-            {!selectedRow.is_used && (
-              <div className="mt-6 flex gap-2">
+            <div className="mt-6 space-y-2">
+              {selectedRow.used_by && (
                 <button 
-                  className="btn-primary flex-1 justify-center flex items-center gap-2"
-                  onClick={() => { setSelectedIds([selectedRow.id]); setSelectedRow(null); setPrintModal(true); }}
+                  className="btn-secondary w-full justify-center flex items-center gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 font-semibold"
+                  onClick={() => {
+                    const target = selectedRow;
+                    setSelectedRow(null);
+                    setConfirmUnbindVoucher(target);
+                  }}
                 >
-                  <Printer className="w-4 h-4" /> Print Ticket
+                  <Unlink className="w-4 h-4 text-amber-600" /> Unbind Device ({selectedRow.used_by})
                 </button>
-                <button 
-                  className="btn-secondary text-red-600 border-red-200 hover:bg-red-50 flex-1 justify-center flex items-center gap-2"
-                  onClick={() => remove(selectedRow.id)}
-                >
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
-              </div>
-            )}
+              )}
+              {!selectedRow.is_used && (
+                <div className="flex gap-2">
+                  <button 
+                    className="btn-primary flex-1 justify-center flex items-center gap-2"
+                    onClick={() => { setSelectedIds([selectedRow.id]); setSelectedRow(null); setPrintModal(true); }}
+                  >
+                    <Printer className="w-4 h-4" /> Print Ticket
+                  </button>
+                  <button 
+                    className="btn-secondary text-red-600 border-red-200 hover:bg-red-50 flex-1 justify-center flex items-center gap-2"
+                    onClick={() => remove(selectedRow.id)}
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -512,6 +602,11 @@ export default function Vouchers() {
         <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-bold text-gray-900 mb-4">Generate Vouchers</h3>
+            {isExpired && (
+              <div className="mb-3 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 p-2.5 rounded-lg">
+                ⚠️ Subscription Expired: Voucher generation is disabled. Please renew your subscription to generate vouchers.
+              </div>
+            )}
             {error && <p className="mb-3 text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>}
             <form onSubmit={generate} className="space-y-3">
               <div>
@@ -599,6 +694,28 @@ export default function Vouchers() {
         message="Are you sure you want to delete all unused vouchers for this package?"
         confirmText="Delete All Unused"
         type="danger"
+      />
+
+      {/* Delete Selected Vouchers Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmDeleteSelected}
+        onClose={() => setConfirmDeleteSelected(false)}
+        onConfirm={executeDeleteSelected}
+        title="Delete Selected Vouchers"
+        message={`Are you sure you want to permanently delete ${selectedIds.length} selected voucher(s)? They will be removed from MySQL database and FreeRADIUS so they can no longer be used for authentication.`}
+        confirmText={`Delete ${selectedIds.length} Voucher(s)`}
+        type="danger"
+      />
+
+      {/* Unbind Device Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!confirmUnbindVoucher}
+        onClose={() => setConfirmUnbindVoucher(null)}
+        onConfirm={executeUnbindDevice}
+        title="Unbind Device from Voucher"
+        message={`Are you sure you want to unbind device (${confirmUnbindVoucher?.used_by || 'MAC'}) from voucher '${confirmUnbindVoucher?.code}'? The active session will be disconnected and the voucher will become available for login on a new phone or laptop.`}
+        confirmText="Unbind Device"
+        type="warning"
       />
     </div>
   )

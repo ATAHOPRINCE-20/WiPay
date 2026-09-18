@@ -8,6 +8,7 @@ const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
+require('./src/utils/patchRouterOS');
 
 const http = require('http');
 const { Server } = require('socket.io');
@@ -17,10 +18,16 @@ const app = express();
 app.use(compression());
 const server = http.createServer(app);
 
-// Run Migrations safely
-runPendingMigrations().catch(err => {
-    console.error('[MIGRATION FATAL ERROR]:', err);
+// Process Safety Exception Handlers (Prevents background socket crashes from killing process)
+process.on('uncaughtException', (err) => {
+    console.error('[UNCAUGHT EXCEPTION]:', err?.message || err);
 });
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[UNHANDLED REJECTION]:', reason?.message || reason);
+});
+
+// Real-time Socket.IO Server
 
 const io = new Server(server, {
     cors: {
@@ -61,9 +68,11 @@ const globalLimiter = rateLimit({
 });
 
 const authLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10,
-    message: 'Too many login attempts, please try again later.',
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Allow up to 100 requests per 15 mins for shared proxy IPs
+    message: { error: 'Too many login attempts, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // 2. Security Headers & CORS
@@ -91,11 +100,21 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/uploads', express.static(uploadsDir));
 console.log('Serving uploaded files from', uploadsDir);
 
+const staticOptions = {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.json')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    }
+};
+
 if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
+    app.use(express.static(frontendDist, staticOptions));
     console.log('Serving static files from', frontendDist);
 } else {
-    app.use(express.static(legacyClient));
+    app.use(express.static(legacyClient, staticOptions));
     console.log('Serving static files from', legacyClient);
 }
 
@@ -143,22 +162,49 @@ app.get('/login', (req, res, next) => {
 app.get('*', (req, res, next) => {
     try {
         const idx = fs.existsSync(path.join(frontendDist, 'index.html')) ? path.join(frontendDist, 'index.html') : path.join(legacyClient, 'index.html');
-        if (fs.existsSync(idx)) return res.sendFile(idx);
+        if (fs.existsSync(idx)) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            return res.sendFile(idx);
+        }
         return next();
     } catch (e) {
         return next();
     }
 });
 
-// Start Periodic Stale RADIUS Session Sweeper
-const { cleanupStaleRadiusSessions } = require('./src/utils/radius');
-setInterval(() => {
-    cleanupStaleRadiusSessions().catch(err => console.error('[Sweeper Error]:', err));
-}, 2 * 60 * 1000);
+// Start Server Function
+async function startServer() {
+    try {
+        console.log('[STARTUP] Running database migrations...');
+        await runPendingMigrations();
+        console.log('[STARTUP] Database migrations completed successfully.');
+    } catch (err) {
+        console.error('[MIGRATION FATAL ERROR]:', err);
+    }
 
-// Start Server
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log('--- SERVER RESTARTED: SESSION SWEEPER ACTIVE ---');
-});
+    // Start Periodic Stale RADIUS Session Sweeper
+    const { cleanupStaleRadiusSessions } = require('./src/utils/radius');
+    setInterval(() => {
+        cleanupStaleRadiusSessions().catch(err => console.error('[Sweeper Error]:', err));
+    }, 2 * 60 * 1000);
+
+    // Start Periodic Trial Expiration Email Reminder Scheduler
+    const { startTrialReminderScheduler } = require('./src/services/trialReminderCron');
+    startTrialReminderScheduler();
+
+    // Start Periodic Router Offline Email Alert Monitor Scheduler
+    const { startRouterMonitorScheduler } = require('./src/services/routerMonitorCron');
+    startRouterMonitorScheduler();
+
+    // Start Server Listener
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+        console.log('--- SERVER RESTARTED: SESSION SWEEPER, TRIAL REMINDERS & ROUTER MONITOR ACTIVE ---');
+    });
+}
+
+startServer();
+
 

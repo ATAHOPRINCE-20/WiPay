@@ -86,7 +86,7 @@ export default function ActiveUsers() {
         mac: mac,
         router_id: targetRouterId
       })
-      showToast(`Session for ${username || mac} terminated.`, 'success')
+      showToast(`Session for ${username || mac} terminated and voucher invalidated.`, 'success')
       setSelectedRow(null)
       load(true)
     } catch (err) {
@@ -400,10 +400,10 @@ export default function ActiveUsers() {
         isOpen={!!confirmDisconnectTarget}
         onClose={() => setConfirmDisconnectTarget(null)}
         onConfirm={executeDisconnect}
-        title="Disconnect User Session"
-        message={`Are you sure you want to terminate the active session for ${confirmDisconnectTarget?.username || confirmDisconnectTarget?.mac || 'this user'}?`}
-        confirmText="Disconnect User"
-        type="warning"
+        title="Terminate Session & Invalidate Voucher"
+        message={`Are you sure you want to terminate the session for ${confirmDisconnectTarget?.username || confirmDisconnectTarget?.mac || 'this user'}? The voucher will be permanently invalidated so the user cannot log in again.`}
+        confirmText="Terminate & Invalidate Voucher"
+        type="danger"
         loading={disconnecting}
       />
     </div>

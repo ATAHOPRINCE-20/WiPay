@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
-import { Plus, Pencil, Trash2, Loader2, Router as RouterIcon, Activity, Terminal, X, Download, FileText, RefreshCw, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, Router as RouterIcon, Activity, Terminal, X, Download, FileText, RefreshCw, Search, Globe, ExternalLink, Cpu, HardDrive, Zap, Server, Unlink, MoreVertical } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
 import ConfirmModal from '../components/ConfirmModal'
+import { safeLocalStorage } from '../utils/safeStorage'
 
 const EMPTY = { name: '', ip_address: '', secret: '', api_port: '8728', api_user: 'admin', api_password: '' }
 
@@ -22,6 +23,45 @@ export default function Routers() {
   const [setupScript, setSetupScript] = useState(null)
   const [selectedRouter, setSelectedRouter] = useState(null)
   const [selectedSession, setSelectedSession] = useState(null)
+  const [remoteModalRouter, setRemoteModalRouter] = useState(null)
+
+  // Health modal state
+  const [healthRouter, setHealthRouter] = useState(null)
+  const [healthData, setHealthData] = useState(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+  const [healthError, setHealthError] = useState('')
+  const [autoRefreshHealth, setAutoRefreshHealth] = useState(true)
+
+  const fetchHealth = async (r, silent = false) => {
+    if (!r) return
+    if (!silent) setHealthLoading(true)
+    setHealthError('')
+    try {
+      const { data } = await api.get(`/admin/routers/${r.id}/health`)
+      setHealthData(data.health || null)
+    } catch (err) {
+      setHealthError(err.response?.data?.error || 'Failed to fetch router health metrics.')
+      setHealthData(null)
+    } finally {
+      if (!silent) setHealthLoading(false)
+    }
+  }
+
+  const openHealth = (r) => {
+    setHealthRouter(r)
+    setHealthData(null)
+    fetchHealth(r)
+  }
+
+  useEffect(() => {
+    let interval
+    if (healthRouter && autoRefreshHealth) {
+      interval = setInterval(() => {
+        fetchHealth(healthRouter, true)
+      }, 5000)
+    }
+    return () => clearInterval(interval)
+  }, [healthRouter, autoRefreshHealth])
 
   // Logs state
   const [logsRouter, setLogsRouter] = useState(null)
@@ -142,6 +182,25 @@ export default function Routers() {
     setConfirmSessionTarget(s)
   }
 
+  const [confirmUnbindSessionTarget, setConfirmUnbindSessionTarget] = useState(null)
+
+  const executeUnbindSession = async () => {
+    if (!confirmUnbindSessionTarget) return
+    const s = confirmUnbindSessionTarget
+    try {
+      await api.post('/admin/vouchers/unbind-device', {
+        code: s.username,
+        mac: s.callingstationid
+      })
+      loadSessions()
+      showToast(`Device (${s.callingstationid || s.username}) unbound! Voucher remains active for new devices.`, 'success')
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to unbind device', 'error')
+    } finally {
+      setConfirmUnbindSessionTarget(null)
+    }
+  }
+
   const executeTerminateSession = async () => {
     if (!confirmSessionTarget) return
     const s = confirmSessionTarget
@@ -152,7 +211,7 @@ export default function Routers() {
         router_id: s.router_id
       })
       loadSessions()
-      showToast('Session terminated.', 'success')
+      showToast('Session terminated and voucher invalidated.', 'success')
     } catch (err) {
       showToast(err.response?.data?.error || 'Failed to terminate session', 'error')
     } finally {
@@ -211,7 +270,7 @@ export default function Routers() {
   }
 
   const downloadLoginHtml = () => {
-    const adminData = JSON.parse(localStorage.getItem('wipay_admin') || '{}')
+    const adminData = JSON.parse(safeLocalStorage.getItem('wipay_admin') || '{}')
     const slug = adminData.portal_slug || 'default'
     const domain = window.location.hostname || 'wifi.ugpay.tech'
     const htmlContent = `<!DOCTYPE html>
@@ -244,26 +303,26 @@ export default function Routers() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-gray-900 truncate">MikroTik Routers</h2>
-          <p className="text-xs sm:text-sm text-gray-400 truncate">Manage routers, VPN connections, and monitor active RADIUS sessions</p>
+          <p className="text-xs sm:text-sm text-gray-400">Manage routers, VPN connections, and monitor active RADIUS sessions</p>
         </div>
-        <button className="btn-primary shrink-0 whitespace-nowrap" onClick={openCreate}>
+        <button className="btn-primary shrink-0 w-full sm:w-auto justify-center" onClick={openCreate}>
           <Plus className="w-4 h-4" /> Add Router
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-100 pb-1">
+      <div className="flex gap-2 border-b border-gray-100 pb-1 overflow-x-auto">
         <button 
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${tab === 'routers' ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shrink-0 ${tab === 'routers' ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setTab('routers')}
         >
           <RouterIcon className="w-4 h-4" /> Routers
         </button>
         <button 
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${tab === 'sessions' ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shrink-0 ${tab === 'sessions' ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setTab('sessions')}
         >
           <Activity className="w-4 h-4" /> Active Sessions
@@ -278,16 +337,16 @@ export default function Routers() {
               <Loader2 className="w-6 h-6 animate-spin text-primary-400" />
             </div>
           ) : (
-            <div className="overflow-y-auto max-h-[65vh]">
-              <table className="w-full text-sm text-left table-fixed sm:table-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+              <table className="w-full text-sm text-left min-w-[550px]">
                 <thead className="sticky top-0 bg-gray-50/95 backdrop-blur-sm z-10 border-b border-gray-100 shadow-sm">
                   <tr>
-                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">VPN IP</th>
-                    <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Public Key</th>
-                    <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active Sessions</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-36">Actions</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Name</th>
+                    <th className="hidden sm:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">VPN IP</th>
+                    <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Public Key</th>
+                    <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Active Sessions</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-20 md:w-36 whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -299,30 +358,54 @@ export default function Routers() {
                       onClick={() => setSelectedRouter(r)}
                       className="hover:bg-gray-50/50 transition-colors cursor-pointer md:cursor-default"
                     >
-                      <td className="px-4 py-3 font-medium text-gray-900 truncate">{r.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600 truncate">{r.ip_address}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-[130px] sm:max-w-none">{r.name}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 font-mono text-xs text-gray-600 truncate">{r.ip_address}</td>
                       <td className="hidden md:table-cell px-4 py-3 font-mono text-xs text-gray-400 truncate max-w-[150px]">{r.wg_public_key || '—'}</td>
                       <td className="hidden lg:table-cell px-4 py-3">
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">{r.active_sessions_count || 0} active</span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
-                        </span>
+                        {r.is_online ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Offline
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => openLogs(r)} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition" title="View Live Router Logs">
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => fetchSetupScript(r.id)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition" title="View Router Setup Script">
-                            <Terminal className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => openEdit(r)} className="p-1.5 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition" title="Edit Router">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => remove(r.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete Router">
-                            <Trash2 className="w-3.5 h-3.5" />
+                        <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+                          {/* Desktop Full Action Icons */}
+                          <div className="hidden md:flex items-center justify-end gap-1">
+                            <button onClick={() => openHealth(r)} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="View Router Health & RAM Usage">
+                              <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                            </button>
+                            <button onClick={() => setRemoteModalRouter(r)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Remote Router Access (WebFig & WinBox)">
+                              <Globe className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => openLogs(r)} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition" title="View Live Router Logs">
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => fetchSetupScript(r.id)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition" title="View Router Setup Script">
+                              <Terminal className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => openEdit(r)} className="p-1.5 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition" title="Edit Router">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => remove(r.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete Router">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Mobile 3-Dots Action Button */}
+                          <button 
+                            onClick={() => setSelectedRouter(r)}
+                            className="md:hidden p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition flex items-center justify-center border border-gray-200 shadow-xs"
+                            title="Router Actions"
+                          >
+                            <MoreVertical className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -335,17 +418,17 @@ export default function Routers() {
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-y-auto max-h-[65vh]">
-            <table className="w-full text-sm text-left table-fixed sm:table-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+            <table className="w-full text-sm text-left min-w-[480px]">
               <thead className="sticky top-0 bg-gray-50/95 backdrop-blur-sm z-10 border-b border-gray-100 shadow-sm">
                 <tr>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Username</th>
-                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">NAS IP</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Client IP</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">MAC Address</th>
-                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">First Logged In</th>
-                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Time Remaining</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-24">Action</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Username</th>
+                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">NAS IP</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Client IP</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">MAC Address</th>
+                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">First Logged In</th>
+                  <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Time Remaining</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-24 whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -366,13 +449,22 @@ export default function Routers() {
                     </td>
                     <td className="hidden lg:table-cell px-4 py-3 text-emerald-600 font-semibold text-xs truncate">{formatTimeLeft(s)}</td>
                     <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={() => terminateSession(s)}
-                        className="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition"
-                        title="Terminate Active Session"
-                      >
-                        Terminate
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setConfirmUnbindSessionTarget(s)}
+                          className="px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition border border-amber-200"
+                          title="Unbind device MAC & keep voucher active for a new device"
+                        >
+                          Unbind
+                        </button>
+                        <button
+                          onClick={() => terminateSession(s)}
+                          className="px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                          title="Terminate Active Session & Invalidate Voucher"
+                        >
+                          Terminate
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -418,6 +510,26 @@ export default function Routers() {
 
             {/* Actions */}
             <div className="mt-6 space-y-2">
+              <button 
+                className="btn-secondary w-full justify-center flex items-center gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 font-semibold"
+                onClick={() => {
+                  const target = selectedRouter;
+                  setSelectedRouter(null);
+                  openHealth(target);
+                }}
+              >
+                <Activity className="w-4 h-4 text-emerald-600 animate-pulse" /> View Health & RAM Usage
+              </button>
+              <button 
+                className="btn-secondary w-full justify-center flex items-center gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-semibold"
+                onClick={() => {
+                  const target = selectedRouter;
+                  setSelectedRouter(null);
+                  setRemoteModalRouter(target);
+                }}
+              >
+                <Globe className="w-4 h-4 text-indigo-600" /> Remote Access (WebFig & WinBox)
+              </button>
               <button 
                 className="btn-secondary w-full justify-center flex items-center gap-2 border-cyan-200 text-cyan-700 hover:bg-cyan-50 font-semibold"
                 onClick={() => {
@@ -745,11 +857,271 @@ export default function Routers() {
         isOpen={!!confirmSessionTarget}
         onClose={() => setConfirmSessionTarget(null)}
         onConfirm={executeTerminateSession}
-        title="Terminate User Session"
-        message={`Are you sure you want to disconnect ${confirmSessionTarget?.username || confirmSessionTarget?.callingstationid || 'this session'}?`}
-        confirmText="Terminate Session"
+        title="Terminate Session & Invalidate Voucher"
+        message={`Are you sure you want to terminate ${confirmSessionTarget?.username || confirmSessionTarget?.callingstationid || 'this session'}? The voucher will be permanently invalidated so the user cannot log in again.`}
+        confirmText="Terminate & Invalidate Voucher"
+        type="danger"
+      />
+
+      {/* Unbind Device Session Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!confirmUnbindSessionTarget}
+        onClose={() => setConfirmUnbindSessionTarget(null)}
+        onConfirm={executeUnbindSession}
+        title="Unbind Device & Release Voucher"
+        message={`Are you sure you want to unbind device (${confirmUnbindSessionTarget?.callingstationid || confirmUnbindSessionTarget?.username})? The active session will be disconnected and the voucher code '${confirmUnbindSessionTarget?.username}' will remain ACTIVE for a new phone/laptop.`}
+        confirmText="Unbind Device"
         type="warning"
       />
+
+      {/* Remote Router Access Modal */}
+      {remoteModalRouter && (
+        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setRemoteModalRouter(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">{remoteModalRouter.name}</h3>
+                  <p className="text-xs text-gray-400 font-mono">VPN IP: {remoteModalRouter.ip_address || '10.66.66.x'}</p>
+                </div>
+              </div>
+              <button onClick={() => setRemoteModalRouter(null)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* WinBox Section */}
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    <RouterIcon className="w-4 h-4 text-primary-600" /> WinBox Remote Access
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    Port Forwarded
+                  </span>
+                </div>
+                <p className="text-gray-500">Connect using the WinBox desktop app from anywhere:</p>
+                <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-2 font-mono text-gray-800">
+                  <span>ugpay.tech:{8290 + (remoteModalRouter.id % 100 || 1)}</span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`ugpay.tech:${8290 + (remoteModalRouter.id % 100 || 1)}`)
+                      showToast('WinBox address copied!', 'success')
+                    }}
+                    className="px-2.5 py-1 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded font-sans text-xs font-semibold"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              {/* WebFig Section */}
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gray-800 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-emerald-600" /> WebFig Browser Control
+                  </span>
+                </div>
+                <p className="text-gray-500">Open router management interface directly in your browser:</p>
+                <a
+                  href={`http://${window.location.hostname || 'ugpay.tech'}:${8080 + (remoteModalRouter.id % 100 || 1)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-primary w-full justify-center flex items-center gap-2 py-2"
+                >
+                  <ExternalLink className="w-4 h-4" /> Open WebFig in New Tab
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button className="btn-secondary w-full" onClick={() => setRemoteModalRouter(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Router Health & Diagnostics Modal */}
+      {healthRouter && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 md:p-6" onClick={() => setHealthRouter(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-6 overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <Activity className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 flex items-center gap-2">
+                    {healthRouter.name} <span className="text-xs font-mono text-gray-400">({healthRouter.ip_address})</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">Live Router Health & System Metrics</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAutoRefreshHealth(!autoRefreshHealth)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+                    autoRefreshHealth ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-500 border border-gray-200'
+                  }`}
+                  title="Auto refresh every 5s"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${autoRefreshHealth ? 'animate-spin text-emerald-600' : ''}`} />
+                  <span className="hidden sm:inline">{autoRefreshHealth ? 'Live 5s' : 'Paused'}</span>
+                </button>
+                <button
+                  onClick={() => fetchHealth(healthRouter)}
+                  disabled={healthLoading}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                >
+                  <RefreshCw className={`w-4 h-4 ${healthLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button onClick={() => setHealthRouter(null)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+              {healthLoading && !healthData ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-3 text-gray-400">
+                  <Loader2 className="w-7 h-7 animate-spin text-emerald-500" />
+                  <p className="text-xs">Querying RouterOS system metrics via API...</p>
+                </div>
+              ) : healthError || (healthData && !healthData.online) ? (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-xs space-y-2">
+                  <p className="font-bold text-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span> Router Unreachable
+                  </p>
+                  <p>{healthError || healthData?.error || 'Failed to communicate with RouterOS API.'}</p>
+                  <p className="text-[11px] text-red-500">
+                    Ensure the router is powered on, connected to the WireGuard VPN ({healthRouter.ip_address}), and RouterOS API service is enabled on port {healthRouter.api_port || 8728}.
+                  </p>
+                </div>
+              ) : healthData ? (
+                <>
+                  {/* Gauge Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* RAM Memory Card */}
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3.5 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-amber-500" /> RAM Memory
+                        </span>
+                        <span className={`font-bold text-xs ${healthData.memory.usage_pct > 85 ? 'text-red-600' : (healthData.memory.usage_pct > 70 ? 'text-amber-600' : 'text-emerald-600')}`}>
+                          {healthData.memory.usage_pct}%
+                        </span>
+                      </div>
+                      {/* Progress Bar */}
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className={`h-2.5 rounded-full transition-all duration-500 ${
+                            healthData.memory.usage_pct > 85 ? 'bg-red-500' : (healthData.memory.usage_pct > 70 ? 'bg-amber-500' : 'bg-emerald-500')
+                          }`}
+                          style={{ width: `${Math.min(100, healthData.memory.usage_pct)}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[11px] font-mono text-gray-500 pt-0.5">
+                        <span>Used: {fmtBytes(healthData.memory.used)}</span>
+                        <span>Total: {fmtBytes(healthData.memory.total)}</span>
+                      </div>
+                    </div>
+
+                    {/* CPU Load Card */}
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3.5 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5 text-blue-500" /> CPU Load
+                        </span>
+                        <span className={`font-bold text-xs ${healthData.cpu_load > 85 ? 'text-red-600' : (healthData.cpu_load > 60 ? 'text-amber-600' : 'text-emerald-600')}`}>
+                          {healthData.cpu_load}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className={`h-2.5 rounded-full transition-all duration-500 ${
+                            healthData.cpu_load > 85 ? 'bg-red-500' : (healthData.cpu_load > 60 ? 'bg-amber-500' : 'bg-blue-500')
+                          }`}
+                          style={{ width: `${Math.min(100, healthData.cpu_load)}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[11px] font-mono text-gray-500 pt-0.5">
+                        <span>Cores: {healthData.cpu_count}</span>
+                        <span>{healthData.cpu_frequency || 'Standard'}</span>
+                      </div>
+                    </div>
+
+                    {/* HDD / Disk Card */}
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3.5 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                          <HardDrive className="w-3.5 h-3.5 text-purple-500" /> Disk Storage
+                        </span>
+                        <span className={`font-bold text-xs ${healthData.hdd.usage_pct > 90 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {healthData.hdd.usage_pct}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className="h-2.5 bg-purple-500 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, healthData.hdd.usage_pct)}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[11px] font-mono text-gray-500 pt-0.5">
+                        <span>Used: {fmtBytes(healthData.hdd.used)}</span>
+                        <span>Total: {fmtBytes(healthData.hdd.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Hardware & Firmware Meta */}
+                  <div className="bg-gray-900 text-gray-200 rounded-xl p-4 text-xs space-y-2.5 font-mono">
+                    <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                      <span className="text-gray-400 font-sans">Hardware Model</span>
+                      <span className="font-bold text-white">{healthData.board_name}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                      <span className="text-gray-400 font-sans">RouterOS Version</span>
+                      <span className="text-emerald-400 font-semibold">{healthData.version}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                      <span className="text-gray-400 font-sans">Uptime</span>
+                      <span className="text-cyan-400">{healthData.uptime}</span>
+                    </div>
+                    {healthData.temperature && (
+                      <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                        <span className="text-gray-400 font-sans">Temperature</span>
+                        <span className="text-amber-400">{healthData.temperature}°C</span>
+                      </div>
+                    )}
+                    {healthData.voltage && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 font-sans">Board Voltage</span>
+                        <span className="text-blue-400">{healthData.voltage} V</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button className="btn-secondary w-full sm:w-auto" onClick={() => setHealthRouter(null)}>
+                Close Health Diagnostics
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

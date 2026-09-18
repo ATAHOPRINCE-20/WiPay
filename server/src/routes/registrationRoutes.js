@@ -115,7 +115,7 @@ router.post('/verify-registration-otp', (req, res, next) => {
         );
 
         // Send notification to admin about new registration
-        const adminEmail = process.env.ADMIN_EMAIL || 'payments@ugpay.tech';
+        const adminEmail = process.env.ADMIN_EMAIL || 'support@ugpay.tech';
         await sendRegistrationNotification(adminEmail, request);
 
         res.json({ message: 'Email verified! Your request is now pending admin approval.' });

@@ -46,31 +46,39 @@ export default function PortalAds() {
   }
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0]
-    setForm(p => ({ ...p, file }))
+    const selectedFiles = Array.from(e.target.files || [])
+    setForm(p => ({ ...p, files: selectedFiles }))
   }
 
   const save = async (e) => {
     e.preventDefault()
-    if (!form.file) {
-      setError('Please select an ad image file.')
+    const filesToUpload = form.files && form.files.length > 0 ? form.files : (form.file ? [form.file] : [])
+    if (filesToUpload.length === 0) {
+      setError('Please select at least one ad image file.')
       return
     }
     setSaving(true)
     setError('')
 
-    const formData = new FormData()
-    formData.append('title', form.title)
-    formData.append('link_url', form.link_url)
-    formData.append('file', form.file)
-
     try {
-      await api.post('/admin/portal-ads/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      let successCount = 0
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const file = filesToUpload[i]
+        const formData = new FormData()
+        const adTitle = form.title ? (filesToUpload.length > 1 ? `${form.title} (${i + 1})` : form.title) : (file.name.replace(/\.[^/.]+$/, ""))
+        formData.append('title', adTitle)
+        formData.append('link_url', form.link_url || '')
+        formData.append('file', file)
+
+        await api.post('/admin/portal-ads/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        successCount++
+      }
+
       setModal(false)
       load()
-      showToast('Portal ad uploaded successfully.', 'success')
+      showToast(`${successCount} portal ad${successCount > 1 ? 's' : ''} uploaded successfully.`, 'success')
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to upload portal ad.')
     } finally {
@@ -251,20 +259,21 @@ export default function PortalAds() {
                     <ImageIcon className="mx-auto h-8 w-8 text-gray-400" />
                     <div className="flex text-sm text-gray-600">
                       <label className="relative cursor-pointer bg-white rounded-md font-medium text-primary-500 hover:text-primary-400">
-                        <span>Select image file</span>
+                        <span>Select image file(s)</span>
                         <input 
                           type="file" 
                           accept="image/*" 
+                          multiple
                           className="sr-only" 
                           onChange={handleFileChange} 
                           required 
                         />
                       </label>
                     </div>
-                    <p className="text-xs text-gray-400">PNG, JPG, GIF up to 5MB</p>
-                    {form.file && (
+                    <p className="text-xs text-gray-400">PNG, JPG, GIF up to 5MB (Select multiple to batch upload)</p>
+                    {form.files && form.files.length > 0 && (
                       <p className="text-xs text-green-600 font-semibold mt-2 truncate max-w-xs">
-                        Selected: {form.file.name}
+                        Selected {form.files.length} file{form.files.length > 1 ? 's' : ''}: {form.files.map(f => f.name).join(', ')}
                       </p>
                     )}
                   </div>

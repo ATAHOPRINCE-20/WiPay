@@ -78,6 +78,7 @@ export async function loadStats() {
             
             if (!hasExpiry || billingType !== 'subscription') {
                 isSubscribed = true;
+                window.isSubscribed = true;
                 banner.style.display = 'none';
                 if (countdownInterval) clearInterval(countdownInterval);
                 if (agentNavItem) agentNavItem.style.display = 'block';
@@ -93,15 +94,20 @@ export async function loadStats() {
                 if (expiry < now) {
                     // Expired - Red
                     isSubscribed = false;
+                    window.isSubscribed = false;
                     banner.style.display = 'flex';
                     banner.style.background = 'var(--grad-red)'; 
                     banner.innerHTML = `<span class="banner-icon">⚠️</span> <strong>ALERT:</strong> Your Subscription has EXPIRED. <span class="renew-link">Click here to Renew</span>`;
                     
                     if (agentNavItem) agentNavItem.style.display = 'none';
                     if (agentSalesCard) agentSalesCard.style.display = 'none';
+
+                    // Lock UI & auto open renewal modal if expired
+                    setTimeout(() => ui.openDashModal('subscriptionModal'), 500);
                 } else if (diff < threeDays) {
                     // Expiring Soon - Amber/Orange
                     isSubscribed = true;
+                    window.isSubscribed = true;
                     banner.style.display = 'flex';
                     banner.style.background = 'var(--grad-orange)'; 
                     
@@ -588,6 +594,11 @@ export async function loadPackagesForSell() {
 }
 
 export async function submitSellVoucher() {
+    if (window.isSubscribed === false) {
+        ui.showAlert('Your subscription has expired. Please renew your subscription to sell vouchers.', 'error');
+        ui.openDashModal('subscriptionModal');
+        return;
+    }
     const pkgId = document.getElementById('sellPackageId').value;
     const phone = document.getElementById('sellPhone').value;
     if (!pkgId || !phone) return ui.showAlert('Missing fields', 'error');

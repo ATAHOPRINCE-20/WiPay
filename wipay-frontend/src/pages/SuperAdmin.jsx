@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
-import { Loader2, Plus, Trash2, Shield, Users, Ticket, Banknote, RefreshCw, Edit, Router, Activity, Percent, Wallet } from 'lucide-react'
+import { Loader2, Plus, Trash2, Shield, Users, Ticket, Banknote, RefreshCw, Edit, Router, Activity, Percent, Wallet, Database, Zap, CheckCircle2, AlertTriangle, LogIn } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 import ConfirmModal from '../components/ConfirmModal'
 
 export default function SuperAdmin() {
   const { showToast } = useToast()
+  const { impersonateTenant } = useAuth()
+  const navigate = useNavigate()
   const [tenants, setTenants] = useState([])
   const [stats, setStats] = useState(null)
+  const [dbHealth, setDbHealth] = useState(null)
+  const [purgingDb, setPurgingDb] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
   const [editModal, setEditModal] = useState(false)
@@ -29,14 +35,30 @@ export default function SuperAdmin() {
   const load = async () => {
     setLoading(true)
     try {
-      const [t, s] = await Promise.all([
+      const [t, s, db] = await Promise.all([
         api.get('/super/tenants'),
         api.get('/super/stats'),
+        api.get('/super/db-health').catch(() => ({ data: null })),
       ])
       setTenants(Array.isArray(t.data) ? t.data : [])
       setStats(s.data)
+      if (db?.data) setDbHealth(db.data)
     } catch (_) {}
     setLoading(false)
+  }
+
+  const handlePurgeDbConnections = async () => {
+    setPurgingDb(true)
+    try {
+      const res = await api.post('/super/db-health/purge-sleeping')
+      showToast(res.data?.message || 'Purged sleeping connections.', 'success')
+      const updatedDb = await api.get('/super/db-health')
+      if (updatedDb.data) setDbHealth(updatedDb.data)
+    } catch (err) {
+      showToast('Failed to purge database connections.', 'error')
+    } finally {
+      setPurgingDb(false)
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -67,6 +89,16 @@ export default function SuperAdmin() {
       showToast(err.response?.data?.error || 'Failed to delete tenant.', 'error')
     } finally {
       setConfirmDeleteId(null)
+    }
+  }
+
+  const handleImpersonate = async (tenant) => {
+    try {
+      await impersonateTenant(tenant.id)
+      showToast(`Impersonating tenant account: ${tenant.username}`, 'success')
+      navigate('/dashboard')
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to impersonate tenant.', 'error')
     }
   }
 
@@ -235,17 +267,6 @@ export default function SuperAdmin() {
           {/* Row 1: Financial Earnings Overview */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="card p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
-              <div className="w-12 h-12 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center shrink-0">
-                <Banknote className="w-6 h-6 text-indigo-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Voucher Sales</p>
-                <p className="text-xl font-bold text-gray-900 truncate">UGX {Number(stats.totalRevenue || 0).toLocaleString()}</p>
-                <p className="text-[11px] text-gray-400">Gross Hotspot Sales</p>
-              </div>
-            </div>
-
-            <div className="card p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
               <div className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center shrink-0">
                 <Percent className="w-6 h-6 text-emerald-600" />
               </div>
@@ -264,6 +285,17 @@ export default function SuperAdmin() {
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Subscription Income</p>
                 <p className="text-xl font-bold text-amber-600 truncate">UGX {Number(stats.subscriptionFees ?? 0).toLocaleString()}</p>
                 <p className="text-[11px] text-gray-400">Tenant Renewals</p>
+              </div>
+            </div>
+
+            <div className="card p-5 flex items-center gap-4 hover:shadow-md transition-shadow bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100">
+              <div className="w-12 h-12 bg-indigo-100 border border-indigo-200 rounded-xl flex items-center justify-center shrink-0">
+                <Banknote className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-indigo-900 uppercase tracking-wider">Total Platform Revenue</p>
+                <p className="text-xl font-bold text-indigo-700 truncate">UGX {Number(stats.totalCommission ?? 0).toLocaleString()}</p>
+                <p className="text-[11px] text-indigo-500 font-medium">Commissions + Subscriptions</p>
               </div>
             </div>
           </div>
@@ -300,6 +332,72 @@ export default function SuperAdmin() {
               </div>
             </div>
           </div>
+
+          {/* Row 3: Live Database Connection & System Health Monitor */}
+          {dbHealth && (
+            <div className="card p-5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl shadow-lg border border-slate-700">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-500/20 border border-indigo-400/30 rounded-xl flex items-center justify-center shrink-0">
+                    <Database className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-white">MySQL Database Health</h3>
+                      {dbHealth.status === 'healthy' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Healthy
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                          <AlertTriangle className="w-3 h-3 text-amber-400" /> High Load
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">Real-time connection pool monitoring & automatic thread cleanup</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                  <div className="text-right">
+                    <p className="text-xs text-slate-400">Active / Max Connections</p>
+                    <p className="text-base font-mono font-bold text-indigo-300">
+                      {dbHealth.threads_connected} <span className="text-xs text-slate-400">/ {dbHealth.max_connections}</span>
+                    </p>
+                  </div>
+                  <button 
+                    onClick={handlePurgeDbConnections} 
+                    disabled={purgingDb} 
+                    className="btn-secondary text-xs py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 flex items-center gap-1.5"
+                    title="Purge sleeping MySQL connections older than 30s"
+                  >
+                    {purgingDb ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>Purge Idle Sockets</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Capacity Bar */}
+              <div className="mt-4">
+                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <span>Pool Capacity Load ({Math.round((dbHealth.threads_connected / dbHealth.max_connections) * 100)}%)</span>
+                  <span>Sleeping: {dbHealth.sleeping_connections} | Running: {dbHealth.threads_running} | Peak Used: {dbHealth.max_used_connections}</span>
+                </div>
+                <div className="w-full h-2 bg-slate-700/80 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-500 ${
+                      dbHealth.threads_connected > dbHealth.max_connections * 0.8 
+                        ? 'bg-rose-500' 
+                        : dbHealth.threads_connected > dbHealth.max_connections * 0.5 
+                        ? 'bg-amber-400' 
+                        : 'bg-emerald-400'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(2, Math.round((dbHealth.threads_connected / dbHealth.max_connections) * 100)))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -353,6 +451,9 @@ export default function SuperAdmin() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => handleImpersonate(t)} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition" title="Impersonate Tenant Account">
+                        <LogIn className="w-3.5 h-3.5" />
+                      </button>
                       <button onClick={() => openBalanceModal(t)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Adjust / Set Tenant Balance (UGX)">
                         <Wallet className="w-3.5 h-3.5" />
                       </button>

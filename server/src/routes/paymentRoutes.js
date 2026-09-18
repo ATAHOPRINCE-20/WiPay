@@ -14,6 +14,8 @@ const RELWORX_SEND_PAYMENT_URL = 'https://payments.relworx.com/api/mobile-money/
 const RELWORX_API_KEY = process.env.RELWORX_API_KEY;
 const RELWORX_ACCOUNT_NO = process.env.RELWORX_ACCOUNT_NO;
 
+const relworxPollCache = new Map();
+
 function formatUgandaMSISDN(phone) {
     if (!phone) return null;
     let digits = phone.toString().replace(/[^0-9]/g, '');
@@ -30,11 +32,90 @@ function formatUgandaMSISDN(phone) {
 
 async function getAdminBalance(adminId) {
     try {
-        const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE (status = 'success' OR status = 'SUCCESS') AND (payment_method = 'mobile_money' OR payment_method IS NULL OR (payment_method != 'manual' AND payment_method != 'cash' AND payment_method != 'agent')) AND (transaction_ref NOT LIKE 'SMS-%' AND transaction_ref NOT LIKE 'SUB-%' AND transaction_ref NOT LIKE 'W-%') AND admin_id = ?", [adminId]);
-        const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount), 0) as total_withdrawn FROM withdrawals WHERE (status = 'success' OR status = 'pending') AND admin_id = ?", [adminId]);
-        const bal = Number(transStats[0].total_revenue) - Number(withdrawStats[0].total_withdrawn);
-        console.log(`[BALANCE] Admin ${adminId}: Rev=${transStats[0].total_revenue}, Wd=${withdrawStats[0].total_withdrawn}, Bal=${bal}`);
-        return bal;
+        const [adminRows] = await db.query(
+            "SELECT role, COALESCE(opening_balance, 0.00) as opening_balance, COALESCE(last_settled_at, '1970-01-01 00:00:00') as last_settled_at FROM admins WHERE id = ?",
+            [adminId]
+        );
+        if (adminRows.length === 0) return 0;
+
+        const role = adminRows[0].role;
+        const openingBal = Number(adminRows[0].opening_balance || 0);
+        const lastSettled = role === 'super_admin' ? '1970-01-01 00:00:00' : (adminRows[0].last_settled_at || '1970-01-01 00:00:00');
+
+        if (role === 'super_admin') {
+            const [commStats] = await db.query(
+                `SELECT COALESCE(SUM(
+                    CASE 
+                        WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                        WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                        ELSE 0
+                    END
+                 ), 0) as total_commission 
+                 FROM transactions t
+                 LEFT JOIN admins a ON t.admin_id = a.id
+                 WHERE (t.status = 'success' OR t.status = 'SUCCESS') 
+                   AND (t.transaction_ref NOT LIKE 'SMS-%' AND t.transaction_ref NOT LIKE 'SUB-%' AND t.transaction_ref NOT LIKE 'W-%')
+                   AND t.created_at >= ?`,
+                [lastSettled]
+            );
+
+            const [subStats] = await db.query(
+                `SELECT COALESCE(SUM(amount), 0) as total_subscriptions 
+                 FROM admin_subscriptions 
+                 WHERE (status = 'success' OR status = 'SUCCESS')
+                   AND created_at >= ?`,
+                [lastSettled]
+            );
+
+            const [smsStats] = await db.query(
+                `SELECT COALESCE(SUM(amount), 0) as total_sms 
+                 FROM sms_fees 
+                 WHERE (status = 'success' OR status = 'SUCCESS') 
+                   AND type IN ('deposit', 'recharge')
+                   AND created_at >= ?`,
+                [lastSettled]
+            );
+
+            const [withdrawStats] = await db.query(
+                `SELECT COALESCE(SUM(amount), 0) as total_withdrawn 
+                 FROM withdrawals 
+                 WHERE (status = 'success' OR status = 'pending') 
+                   AND admin_id = ? 
+                   AND created_at >= ?`,
+                [adminId, lastSettled]
+            );
+
+            const totalEarnings = Number(commStats[0].total_commission) + Number(subStats[0].total_subscriptions) + Number(smsStats[0].total_sms);
+            const totalWithdrawn = Number(withdrawStats[0].total_withdrawn);
+            const bal = openingBal + totalEarnings - totalWithdrawn;
+            console.log(`[BALANCE] SuperAdmin ${adminId}: Comm=${commStats[0].total_commission}, Sub=${subStats[0].total_subscriptions}, SMS=${smsStats[0].total_sms}, Wd=${totalWithdrawn}, Bal=${bal}`);
+            return bal;
+        } else {
+            const [transStats] = await db.query(
+                `SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue 
+                 FROM transactions 
+                 WHERE (status = 'success' OR status = 'SUCCESS') 
+                   AND (payment_method = 'mobile_money' OR payment_method IS NULL OR (payment_method != 'manual' AND payment_method != 'cash' AND payment_method != 'agent')) 
+                   AND (transaction_ref NOT LIKE 'SMS-%' AND transaction_ref NOT LIKE 'SUB-%' AND transaction_ref NOT LIKE 'W-%') 
+                   AND admin_id = ? 
+                   AND created_at >= ?`,
+                [adminId, lastSettled]
+            );
+            const [withdrawStats] = await db.query(
+                `SELECT COALESCE(SUM(amount), 0) as total_withdrawn 
+                 FROM withdrawals 
+                 WHERE (status = 'success' OR status = 'pending') 
+                   AND admin_id = ? 
+                   AND created_at >= ?`,
+                [adminId, lastSettled]
+            );
+
+            const totalRev = Number(transStats[0].total_revenue);
+            const totalWithdrawn = Number(withdrawStats[0].total_withdrawn);
+            const bal = openingBal + totalRev - totalWithdrawn;
+            console.log(`[BALANCE] Tenant Admin ${adminId}: Rev=${totalRev}, Wd=${totalWithdrawn}, Bal=${bal}`);
+            return bal;
+        }
     } catch (e) {
         console.error('Error fetching balance:', e);
         return 0;
@@ -47,14 +128,27 @@ function grantAccess(phoneNumber, durationHours) {
 }
 
 router.post('/purchase', async (req, res) => {
-    const { phone_number, package_id, router_id, mac, ip } = req.body;
+    const { phone_number, package_id, router_id, mac, ip, mac_address, tv_mac } = req.body;
+    const targetMac = tv_mac || mac_address || mac || null;
 
     if (!phone_number || !package_id) return res.status(400).json({ error: 'Phone number and package ID required.' });
 
     try {
-        const [packages] = await db.query('SELECT * FROM packages WHERE id = ?', [package_id]);
+        const [packages] = await db.query('SELECT id, name, price, admin_id, router_id FROM packages WHERE id = ?', [package_id]);
         if (packages.length === 0) return res.status(404).json({ error: 'Package not found.' });
         const selectedPackage = packages[0];
+
+        // Check if admin subscription is active
+        const [adminSubRows] = await db.query('SELECT billing_type, subscription_expiry FROM admins WHERE id = ?', [selectedPackage.admin_id]);
+        if (adminSubRows.length > 0) {
+            const { billing_type, subscription_expiry } = adminSubRows[0];
+            if (billing_type === 'subscription' && subscription_expiry && new Date(subscription_expiry) < new Date()) {
+                return res.status(403).json({
+                    error: 'Network Service Suspended: The network administrator subscription has expired. Online voucher purchases are temporarily disabled.',
+                    code: 'SUBSCRIPTION_EXPIRED'
+                });
+            }
+        }
 
         const [vouchers] = await db.query(
             'SELECT count(*) as count FROM vouchers WHERE package_id = ? AND admin_id = ? AND is_used = 0 AND (status IS NULL OR status != "expired")',
@@ -68,12 +162,12 @@ router.post('/purchase', async (req, res) => {
         const formattedPhone = formatUgandaMSISDN(phone_number);
         if (!formattedPhone) return res.status(400).json({ error: 'Invalid phone number format.' });
 
-        console.log(`[GATEWAY] Payment for ${formattedPhone}, Amount: ${selectedPackage.price}, Router: ${router_id || 'N/A'}, MAC: ${mac || 'N/A'}`);
+        console.log(`[GATEWAY] Payment for ${formattedPhone}, Amount: ${selectedPackage.price}, Router: ${router_id || 'N/A'}, MAC: ${targetMac || 'N/A'}`);
 
         await db.query(`
             INSERT INTO transactions (transaction_ref, phone_number, amount, package_id, status, admin_id, router_id, mac_address, ip_address)
             VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-        `, [reference, formattedPhone, selectedPackage.price, package_id, selectedPackage.admin_id, router_id || selectedPackage.router_id || null, mac || null, ip || null]);
+        `, [reference, formattedPhone, selectedPackage.price, package_id, selectedPackage.admin_id, router_id || selectedPackage.router_id || null, targetMac || null, ip || null]);
 
         const response = await fetch(RELWORX_API_URL, {
             method: 'POST',
@@ -103,8 +197,17 @@ router.post('/purchase', async (req, res) => {
             });
         } else {
             console.error('[Purchase] Gateway Failed:', JSON.stringify(paymentData, null, 2));
-            await db.query('UPDATE transactions SET status = "failed" WHERE transaction_ref = ?', [reference]);
-            res.status(400).json({ error: 'Payment gateway failed', details: paymentData });
+            const errorJson = JSON.stringify(paymentData);
+            await db.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', [errorJson, reference]);
+            
+            const rawMsg = paymentData?.message || paymentData?.error || '';
+            let userMsg = 'Payment gateway failed. Please try again.';
+            if (response.status === 429 || rawMsg.toLowerCase().includes('too many requests')) {
+                userMsg = 'Payment gateway is busy. Please wait 10-15 seconds and try again.';
+            } else if (rawMsg) {
+                userMsg = rawMsg;
+            }
+            res.status(response.status === 429 ? 429 : 400).json({ error: userMsg, details: paymentData });
         }
     } catch (err) {
         console.error('Purchase error:', err);
@@ -271,7 +374,8 @@ router.post('/webhook', async (req, res) => {
                         feeMs = (tx.amount * rate) / 100;
                     }
                 }
-                await db.query('UPDATE transactions SET status = "success", fee = ?, gateway_ref = COALESCE(?, gateway_ref) WHERE transaction_ref = ?', [feeMs, gatewayRef, reference]);
+                const webhookStr = JSON.stringify(data);
+                await db.query('UPDATE transactions SET status = "success", fee = ?, gateway_ref = COALESCE(?, gateway_ref), webhook_data = ? WHERE transaction_ref = ?', [feeMs, gatewayRef, webhookStr, reference]);
 
                 // Notify Payments Update
                 req.io.emit('data_update', { type: 'payments' });
@@ -342,6 +446,12 @@ router.post('/webhook', async (req, res) => {
                 req.io.emit('data_update', { type: 'payments' });
                 req.io.emit('data_update', { type: 'sms' });
 
+                // Emit real-time payment completion event to user's device
+                req.io.emit(`payment_completed_${reference}`, {
+                    status: 'SUCCESS',
+                    voucher_code: assignedVoucherCode
+                });
+
                 // Email Notification
                 try {
                     const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [pkg.admin_id]);
@@ -356,98 +466,18 @@ router.post('/webhook', async (req, res) => {
             res.status(500).send('Server Error');
         }
     } else if (status === 'failed') {
-        await db.query('UPDATE transactions SET status = "failed" WHERE transaction_ref = ?', [reference]);
+        const payloadJson = JSON.stringify(data);
+        await db.query('UPDATE transactions SET status = "failed", webhook_data = ? WHERE transaction_ref = ?', [payloadJson, reference]);
         console.log(`[WEBHOOK] Transaction failed: ${reference}`);
+        
+        // Emit real-time failure event to user's device
+        req.io.emit(`payment_completed_${reference}`, {
+            status: 'FAILED'
+        });
         res.status(200).send('OK');
     } else {
         console.log(`[WEBHOOK] Status ignored: ${status}`);
         res.status(200).send('OK');
-    }
-});
-
-// Find Voucher by Transaction ID or Reference
-router.post('/find-voucher', async (req, res) => {
-    const { query } = req.body;
-    if (!query || !query.trim()) return res.status(400).json({ error: 'Transaction ID or Reference required' });
-
-    const cleanQuery = query.trim();
-    let phoneMatch = cleanQuery;
-    if (phoneMatch.startsWith('0')) phoneMatch = '+256' + phoneMatch.slice(1);
-
-    try {
-        // 1. Search by exact or partial transaction_ref, gateway_ref (Airtel/MTN Txn ID), phone number, or voucher_code
-        const [rows] = await db.query(`
-            SELECT t.transaction_ref, t.gateway_ref, t.voucher_code, t.status, t.created_at, p.name as package_name
-            FROM transactions t
-            LEFT JOIN packages p ON p.id = t.package_id
-            WHERE t.transaction_ref = ? 
-               OR t.gateway_ref = ? 
-               OR t.voucher_code = ? 
-               OR t.phone_number = ? 
-               OR t.phone_number = ?
-               OR t.transaction_ref LIKE ? 
-               OR t.gateway_ref LIKE ?
-            ORDER BY t.created_at DESC
-            LIMIT 1
-        `, [cleanQuery, cleanQuery, cleanQuery, cleanQuery, phoneMatch, `%${cleanQuery}%`, `%${cleanQuery}%`]);
-
-        if (rows.length > 0) {
-            const tx = rows[0];
-            if (tx.status === 'success' && tx.voucher_code) {
-                return res.json({
-                    success: true,
-                    voucher_code: tx.voucher_code,
-                    package_name: tx.package_name || 'WiFi Package',
-                    created_at: tx.created_at
-                });
-            } else if (tx.status === 'pending') {
-                return res.json({
-                    success: false,
-                    status: 'pending',
-                    message: 'Payment is still being processed. Please wait a few seconds and try again.'
-                });
-            } else if (tx.status === 'failed') {
-                return res.json({
-                    success: false,
-                    status: 'failed',
-                    message: 'This payment transaction failed or was cancelled.'
-                });
-            }
-        }
-
-        // 2. Fallback Gateway Check
-        const checkUrl = `https://payments.relworx.com/api/mobile-money/check-request-status?account_no=${RELWORX_ACCOUNT_NO}&reference=${cleanQuery}&internal_reference=${cleanQuery}`;
-        try {
-            const gwRes = await fetch(checkUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/vnd.relworx.v2',
-                    'Authorization': `Bearer ${RELWORX_API_KEY}`
-                }
-            });
-            if (gwRes.ok) {
-                const gwData = await gwRes.json();
-                if (gwData.status === 'SUCCESS' || gwData.item_status === 'SUCCESS') {
-                    const [txRows] = await db.query('SELECT voucher_code FROM transactions WHERE transaction_ref = ?', [cleanQuery]);
-                    if (txRows.length > 0 && txRows[0].voucher_code) {
-                        return res.json({
-                            success: true,
-                            voucher_code: txRows[0].voucher_code,
-                            package_name: 'WiFi Package'
-                        });
-                    }
-                }
-            }
-        } catch (_) {}
-
-        return res.status(404).json({
-            success: false,
-            message: 'No active voucher found matching this Transaction ID. Please verify your reference number.'
-        });
-
-    } catch (err) {
-        console.error('Find Voucher Error:', err);
-        res.status(500).json({ error: 'Failed to search for voucher' });
     }
 });
 
@@ -504,7 +534,19 @@ router.post('/check-payment-status', async (req, res) => {
             if (tx.status === 'failed_low_sms') return res.json({ status: 'FAILED_LOW_SMS' });
         }
 
-        // 2. Gateway Check
+        // 2. Gateway Check - Throttle outbound checks to max once per 10 seconds per ref to prevent Relworx rate limits
+        const lastCheckTime = relworxPollCache.get(transaction_ref) || 0;
+        const now = Date.now();
+        if (now - lastCheckTime < 10000) {
+            return res.json({ status: 'PENDING' });
+        }
+        relworxPollCache.set(transaction_ref, now);
+        if (relworxPollCache.size > 500) {
+            for (const [k, v] of relworxPollCache.entries()) {
+                if (now - v > 300000) relworxPollCache.delete(k);
+            }
+        }
+
         const checkUrl = `https://payments.relworx.com/api/mobile-money/check-request-status?account_no=${RELWORX_ACCOUNT_NO}&reference=${transaction_ref}&internal_reference=${transaction_ref}`;
         console.log(`[POLL] Asking Gateway: ${checkUrl}`);
 
@@ -686,29 +728,54 @@ router.post('/admin/withdraw/initiate', authenticateToken, async (req, res) => {
     }
 
     try {
+        // Check Admin Subscription Status
+        const [subRows] = await db.query('SELECT billing_type, subscription_expiry FROM admins WHERE id = ?', [req.user.id]);
+        if (subRows.length > 0) {
+            const { billing_type, subscription_expiry } = subRows[0];
+            if (billing_type === 'subscription' && subscription_expiry && new Date(subscription_expiry) < new Date()) {
+                return res.status(403).json({
+                    error: 'Account Expired: Please renew your subscription to perform withdrawals.',
+                    code: 'SUBSCRIPTION_EXPIRED'
+                });
+            }
+        }
+
         // 1. Check Balance
-        const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE (status = 'success' OR status = 'SUCCESS') AND (payment_method = 'mobile_money' OR payment_method IS NULL OR (payment_method != 'manual' AND payment_method != 'cash' AND payment_method != 'agent')) AND (transaction_ref NOT LIKE 'SMS-%' AND transaction_ref NOT LIKE 'SUB-%' AND transaction_ref NOT LIKE 'W-%') AND admin_id = ?", [req.user.id]);
-        const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount), 0) as total_withdrawn FROM withdrawals WHERE status != 'failed' AND admin_id = ?", [req.user.id]);
-        const currentBalance = Number(transStats[0].total_revenue) - Number(withdrawStats[0].total_withdrawn);
+        const currentBalance = await getAdminBalance(req.user.id);
 
         if (Number(amount) > currentBalance) {
             return res.status(400).json({ error: 'Insufficient funds', message: `Balance: ${currentBalance}` });
         }
 
-        // 2. Generate OTP
+        // 2. Check if an active OTP already exists (Rate limit resend for 5 minutes)
+        const [existingOtpRows] = await db.query(
+            'SELECT withdrawal_otp, withdrawal_otp_expiry FROM admins WHERE id = ? AND withdrawal_otp IS NOT NULL AND withdrawal_otp_expiry > NOW()', 
+            [req.user.id]
+        );
+
+        if (existingOtpRows.length > 0 && existingOtpRows[0].withdrawal_otp) {
+            const expiryTime = new Date(existingOtpRows[0].withdrawal_otp_expiry).getTime();
+            const remainingSec = Math.max(0, Math.ceil((expiryTime - Date.now()) / 1000));
+            return res.json({ 
+                message: 'An active OTP has already been sent to your email.', 
+                step: 'otp',
+                cooldown: remainingSec || 300
+            });
+        }
+
+        // Generate New OTP (5 minutes validity)
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const expiry = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
 
-        // 3. Save to DB
         await db.query('UPDATE admins SET withdrawal_otp = ?, withdrawal_otp_expiry = ? WHERE id = ?', [otp, expiry, req.user.id]);
 
-        // 4. Send Email
+        // 3. Send Email
         const [adminRows] = await db.query('SELECT email, username FROM admins WHERE id = ?', [req.user.id]);
         if (adminRows.length > 0 && adminRows[0].email) {
             sendWithdrawalOTP(adminRows[0].email, otp, adminRows[0].username);
         }
 
-        res.json({ message: 'OTP sent to email', step: 'otp' });
+        res.json({ message: 'OTP sent to email', step: 'otp', cooldown: 300 });
 
     } catch (err) {
         console.error('Initiate Withdraw Error:', err);
@@ -742,13 +809,8 @@ router.post('/admin/withdraw', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Invalid phone number format. Please enter a valid 10-digit Ugandan phone number (e.g. 0772000000).' });
         }
 
-        // Balance Check: Total Revenue - (Successful Withdrawals + Pending Withdrawals)
-        const [transStats] = await db.query("SELECT COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as total_revenue FROM transactions WHERE (status = 'success' OR status = 'SUCCESS') AND (payment_method = 'mobile_money' OR payment_method IS NULL OR (payment_method != 'manual' AND payment_method != 'cash' AND payment_method != 'agent')) AND (transaction_ref NOT LIKE 'SMS-%' AND transaction_ref NOT LIKE 'SUB-%' AND transaction_ref NOT LIKE 'W-%') AND admin_id = ?", [req.user.id]);
-
-        // Count both success AND pending to prevent race condition double-transfers
-        const [withdrawStats] = await db.query("SELECT COALESCE(SUM(amount), 0) as total_withdrawn FROM withdrawals WHERE (status = 'success' OR status = 'pending') AND admin_id = ?", [req.user.id]);
-
-        const currentBalance = Number(transStats[0].total_revenue) - Number(withdrawStats[0].total_withdrawn);
+        // Balance Check
+        const currentBalance = await getAdminBalance(req.user.id);
 
         if (Number(amount) > currentBalance) {
             return res.status(400).json({ error: 'Insufficient funds', message: `Balance: ${currentBalance} (includes pending withdrawals)` });

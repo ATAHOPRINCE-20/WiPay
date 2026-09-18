@@ -72,3 +72,39 @@ Ensure IP Pool (`hs-pool-1`) matches the LAN IP (`192.168.88.1`) and NAT masquer
 | `SYN flooding on tcp port 64875` | HTTPS interception enabled on router | Turn off HTTPS in Server Profile (`ssl-certificate=none`) |
 | `404 Not Found / SSL Warning` | Redirect using raw IP `84.46.253.72` | Set `login.html` & `dns-name` to `https://wifi.ugpay.tech` |
 | `VPN Tunnel Down` | Incorrect system clock | Set date/time via `/system clock` and enable SNTP client |
+| `Portal Popup Delay (10-15s)` | Phone waiting for HTTPS port 443 timeouts | Add `/ip firewall filter add chain=hs-unauth protocol=tcp dst-port=443 action=reject reject-with=tcp-reset` |
+| `Smart TV No Internet` | TVs lack built-in captive portal popup | Add TV MAC to `/ip hotspot ip-binding add type=bypassed` or use TV browser |
+
+---
+
+## 🚀 Instant Captive Portal Popup Fix (Eliminates 15s Delay on Phones)
+
+Paste this into **WinBox Terminal** to reject port 443 HTTPS probes instantly so phones trigger the portal popup sheet within **1 second**:
+
+```routeros
+# 1. Reject Unauthenticated HTTPS Traffic Immediately (Fixes 15-second phone delay)
+:do { /ip firewall filter add chain=hs-unauth protocol=tcp dst-port=443 action=reject reject-with=tcp-reset place-before=0 comment="Instant Captive Portal Popup - Fast HTTPS Reject" } on-error={}
+
+# 2. Add OS Probe Domains to Walled Garden
+/ip hotspot walled-garden add dst-host=*.gstatic.com comment="Android Probe"
+/ip hotspot walled-garden add dst-host=*.apple.com comment="iOS Probe"
+/ip hotspot walled-garden add dst-host=*.msftconnecttest.com comment="Windows Probe"
+```
+
+---
+
+## 📺 Smart TV & Streaming Device Setup Guide
+
+Smart TVs (Android TV, Apple TV, LG webOS, Samsung Tizen, Roku, Firestick) **do not have a built-in Captive Network Assistant (CNA) popup browser**. When connected to Wi-Fi, they will simply show `"No Internet Access"`.
+
+### Solution 1: MAC Address Bypass (Recommended)
+Add the Smart TV's MAC address to MikroTik IP Bindings so it bypasses hotspot login completely:
+```routeros
+/ip hotspot ip-binding add mac-address=AA:BB:CC:DD:EE:FF type=bypassed comment="Customer Smart TV"
+```
+
+### Solution 2: Manual Browser Login on TV
+1. Open the **Web Browser app** on the Smart TV (e.g. LG Web Browser, Samsung Internet, Silk Browser).
+2. Type `http://192.168.88.1` or `http://wifi.ugpay.tech` into the address bar.
+3. Enter the voucher code and click **Connect**.
+

@@ -1,14 +1,41 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../services/api'
-import { Plus, Pencil, Trash2, Loader2, ToggleLeft, ToggleRight, Wifi, X } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, ToggleLeft, ToggleRight, Wifi, X, MoreVertical } from 'lucide-react'
 import ConfirmModal from '../components/ConfirmModal'
 
-const EMPTY = { name: '', category_id: '', price: '', validity_hours: '', validity_minutes: '', validity_unit: 'hours', data_limit_mb: '', rate_limit: '1M/1M', is_active: true, simultaneous_devices: 1 }
+const EMPTY = { name: '', category_id: '', price: '', validity_value: '', validity_hours: '', validity_minutes: '', validity_unit: 'hours', data_limit_mb: '', rate_limit: '1M/1M', is_active: true, simultaneous_devices: 1, device_type: 'mobile' }
+
+const parsePackageValidity = (pkg) => {
+  if (!pkg) return { value: '', unit: 'hours', hours: '', minutes: '' }
+  if (pkg.validity_unit === 'minutes' || (pkg.validity_minutes > 0 && (!pkg.validity_hours || pkg.validity_hours < 1))) {
+    return {
+      value: (pkg.validity_minutes || '').toString(),
+      unit: 'minutes',
+      hours: pkg.validity_hours || (pkg.validity_minutes / 60),
+      minutes: pkg.validity_minutes
+    }
+  }
+  const hours = parseFloat(pkg.validity_hours || 0)
+  if (hours > 0) {
+    if (hours >= 720 && hours % 720 === 0) {
+      return { value: (hours / 720).toString(), unit: 'months', hours, minutes: hours * 60 }
+    }
+    if (hours >= 168 && hours % 168 === 0) {
+      return { value: (hours / 168).toString(), unit: 'weeks', hours, minutes: hours * 60 }
+    }
+    if (hours >= 24 && hours % 24 === 0) {
+      return { value: (hours / 24).toString(), unit: 'days', hours, minutes: hours * 60 }
+    }
+    return { value: hours.toString(), unit: 'hours', hours, minutes: hours * 60 }
+  }
+  return { value: '', unit: 'hours', hours: '', minutes: '' }
+}
 
 export default function Packages() {
   const [packages, setPackages]   = useState([])
   const [categories, setCategories] = useState([])
+  const [routers, setRouters]     = useState([])
   const [loading, setLoading]     = useState(true)
   const [modal, setModal]         = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -18,12 +45,14 @@ export default function Packages() {
   const [error, setError]         = useState('')
   const [selectedRow, setSelectedRow] = useState(null)
   const [searchParams, setSearchParams] = useSearchParams()
+  const [filterRouter, setFilterRouter] = useState('')
 
   const load = async () => {
     setLoading(true)
-    const [p, c] = await Promise.all([api.get('/admin/packages'), api.get('/admin/categories')])
+    const [p, c, r] = await Promise.all([api.get('/admin/packages'), api.get('/admin/categories'), api.get('/admin/routers')])
     setPackages(Array.isArray(p.data) ? p.data : [])
     setCategories(Array.isArray(c.data) ? c.data : [])
+    setRouters(Array.isArray(r.data) ? r.data : [])
     setLoading(false)
   }
 
@@ -38,17 +67,49 @@ export default function Packages() {
     }
   }, [searchParams])
 
+  const updateValidity = (val, unit) => {
+    const num = parseFloat(val) || 0
+    let hours = 0
+    let minutes = 0
+    if (unit === 'minutes') {
+      minutes = num
+      hours = num / 60
+    } else if (unit === 'days') {
+      hours = num * 24
+      minutes = hours * 60
+    } else if (unit === 'weeks') {
+      hours = num * 168
+      minutes = hours * 60
+    } else if (unit === 'months') {
+      hours = num * 720
+      minutes = hours * 60
+    } else {
+      hours = num
+      minutes = num * 60
+    }
+    setForm(p => ({
+      ...p,
+      validity_value: val,
+      validity_unit: unit,
+      validity_hours: hours ? hours.toString() : '',
+      validity_minutes: minutes ? Math.round(minutes) : ''
+    }))
+  }
+
   const openCreate = () => { setForm(EMPTY); setEditId(null); setError(''); setModal(true) }
   const openEdit   = (pkg) => {
-    const unit = pkg.validity_unit || (pkg.validity_minutes && !pkg.validity_hours ? 'minutes' : 'hours');
+    const parsed = parsePackageValidity(pkg)
     setForm({
       name: pkg.name, category_id: pkg.category_id, price: pkg.price,
-      validity_hours: pkg.validity_hours || '',
-      validity_minutes: pkg.validity_minutes || '',
-      validity_unit: unit,
+      validity_value: parsed.value,
+      validity_hours: parsed.hours,
+      validity_minutes: parsed.minutes,
+      validity_unit: parsed.unit,
       data_limit_mb: pkg.data_limit_mb,
       rate_limit: pkg.rate_limit, is_active: pkg.is_active,
       simultaneous_devices: pkg.simultaneous_devices || 1,
+      device_type: pkg.device_type || 'mobile',
+      router_id: pkg.router_id || ''
     })
     setEditId(pkg.id); setError(''); setModal(true)
   }
@@ -105,14 +166,24 @@ export default function Packages() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-gray-900 truncate">Packages</h2>
           <p className="text-xs sm:text-sm text-gray-400 truncate">Manage internet packages and bandwidth profiles</p>
         </div>
-        <button className="btn-primary shrink-0 whitespace-nowrap" onClick={openCreate}>
-          <Plus className="w-4 h-4" /> New Package
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <select 
+            className="input text-xs max-w-[180px]" 
+            value={filterRouter} 
+            onChange={e => setFilterRouter(e.target.value)}
+          >
+            <option value="">All Routers (Global)</option>
+            {routers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <button className="btn-primary shrink-0 whitespace-nowrap" onClick={openCreate}>
+            <Plus className="w-4 h-4" /> New Package
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -133,7 +204,7 @@ export default function Packages() {
                   <th className="hidden lg:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Rate Limit</th>
                   <th className="hidden xl:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24"></th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right w-12 md:w-24">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -163,13 +234,22 @@ export default function Packages() {
                         }
                       </button>
                     </td>
-                    <td className="hidden md:table-cell px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={(e) => { e.stopPropagation(); openEdit(pkg) }} className="p-1.5 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition">
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); remove(pkg.id) }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                          <Trash2 className="w-3.5 h-3.5" />
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+                        <div className="hidden md:flex items-center justify-end gap-1">
+                          <button onClick={() => openEdit(pkg)} className="p-1.5 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition" title="Edit Package">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => remove(pkg.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete Package">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <button 
+                          onClick={() => setSelectedRow(pkg)}
+                          className="md:hidden p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition border border-gray-200 shadow-xs"
+                          title="Package Actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -266,32 +346,23 @@ export default function Packages() {
                   <label className="block text-xs font-medium text-gray-700 mb-1">Price (UGX)</label>
                   <input className="input" type="number" min="0" placeholder="1000" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} required />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-700 mb-1">Validity Duration</label>
                   <div className="flex gap-2">
                     <input 
-                      className="input flex-1" 
+                      className="input flex-1 min-w-0" 
                       type="number" 
                       min="1" 
-                      placeholder={form.validity_unit === 'minutes' ? '30' : '24'} 
-                      value={form.validity_unit === 'minutes' ? (form.validity_minutes || '') : (form.validity_hours || '')} 
-                      onChange={e => {
-                        const val = e.target.value;
-                        if (form.validity_unit === 'minutes') {
-                          setForm(p => ({ ...p, validity_minutes: val, validity_hours: (parseFloat(val) / 60).toFixed(2) }))
-                        } else {
-                          setForm(p => ({ ...p, validity_hours: val, validity_minutes: Math.round((parseFloat(val) || 0) * 60) }))
-                        }
-                      }} 
+                      step="any"
+                      placeholder={form.validity_unit === 'minutes' ? '30' : (form.validity_unit === 'months' ? '1' : '24')} 
+                      value={form.validity_value} 
+                      onChange={e => updateValidity(e.target.value, form.validity_unit)} 
                       required 
                     />
                     <select 
-                      className="input w-32" 
+                      className="input w-28 shrink-0 text-xs" 
                       value={form.validity_unit || 'hours'} 
-                      onChange={e => {
-                        const newUnit = e.target.value;
-                        setForm(p => ({ ...p, validity_unit: newUnit }));
-                      }}
+                      onChange={e => updateValidity(form.validity_value, e.target.value)}
                     >
                       <option value="hours">Hours</option>
                       <option value="minutes">Minutes</option>
@@ -308,6 +379,25 @@ export default function Packages() {
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Simultaneous Devices</label>
                   <input className="input" type="number" min="1" max="10" placeholder="1" value={form.simultaneous_devices} onChange={e => setForm(p => ({ ...p, simultaneous_devices: parseInt(e.target.value) || 1 }))} required />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Router Location Assignment</label>
+                  <select className="input" value={form.router_id || ''} onChange={e => setForm(p => ({ ...p, router_id: e.target.value }))}>
+                    <option value="">Global (Available across All Routers)</option>
+                    {routers.map(r => <option key={r.id} value={r.id}>{r.name} ({r.ip_address})</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Target Device Category</label>
+                  <select
+                    className="input w-full font-semibold"
+                    value={form.device_type || 'mobile'}
+                    onChange={e => setForm(p => ({ ...p, device_type: e.target.value }))}
+                  >
+                    <option value="mobile">Mobile Only</option>
+                    <option value="tv">Smart TVs Only</option>
+                    <option value="both">Both Mobile & Smart TVs</option>
+                  </select>
                 </div>
               </div>
               <div className="flex items-center gap-3 pt-1">

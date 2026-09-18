@@ -6,20 +6,23 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const { authenticateToken, JWT_SECRET } = require('../middleware/auth');
 const sessionStore = require('../config/session');
-const { sendRegistrationOTP } = require('../utils/email');
+const { sendRegistrationOTP, sendWelcomeEmail } = require('../utils/email');
 
 // Login API (Admin & Agent)
 async function loginHandler(req, res) {
-    const { username, password } = req.body;
+    const rawUsername = req.body.username || '';
+    const password = req.body.password || '';
+    const username = rawUsername.trim();
+
     try {
-        const [users] = await db.query('SELECT * FROM admins WHERE username = ?', [username]);
+        const [users] = await db.query('SELECT * FROM admins WHERE LOWER(username) = LOWER(?)', [username]);
         let user = users[0];
         let role = user ? user.role : null;
         let isAgent = false;
 
         if (users.length === 0) {
             // Check agents table
-            const [agents] = await db.query('SELECT * FROM agents WHERE username = ?', [username]);
+            const [agents] = await db.query('SELECT * FROM agents WHERE LOWER(username) = LOWER(?)', [username]);
             if (agents.length === 0) {
                 return res.status(400).json({ error: 'User not found' });
             }
@@ -59,7 +62,9 @@ async function loginHandler(req, res) {
                 role: user.role,
                 portal_slug: user.portal_slug,
                 portal_dns: user.portal_dns,
-                business_name: user.business_name
+                business_name: user.business_name,
+                billing_type: user.billing_type,
+                subscription_expiry: user.subscription_expiry
             }
         });
     } catch (err) {
@@ -134,12 +139,15 @@ router.post('/auth/register', async (req, res) => {
         const portalSlug = 'wp_' + crypto.randomBytes(6).toString('hex');
 
         const [result] = await db.query(
-            'INSERT INTO admins (username, password_hash, email, role, business_name, business_phone, portal_dns, portal_slug, referral_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+            'INSERT INTO admins (username, password_hash, email, role, business_name, business_phone, portal_dns, portal_slug, referral_code, subscription_expiry, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), NOW())',
             [username, hash, email, 'admin', company_name, phone_number, dnsName, portalSlug, referral_code || null]
         );
         const userId = result.insertId;
 
         sessionStore.delete(`register_otp_${email}`);
+
+        // Send Welcome Email (30 days access & MikroTik config contact info)
+        sendWelcomeEmail(email, username, company_name).catch(err => console.error('Welcome Email Error:', err));
 
         const token = jwt.sign({ id: userId, username, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, secure: false, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });

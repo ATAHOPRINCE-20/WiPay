@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 
 class SubscriptionController extends Controller
 {
-    const MONTHLY_FEE = 20000;
+    const MONTHLY_FEE = 25000;
 
     public function __construct(protected RelworxService $relworx) {}
 

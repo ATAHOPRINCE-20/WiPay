@@ -10,8 +10,11 @@ const db = mysql.createPool({
     database: process.env.DB_NAME,
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
-    connectionLimit: 100, // Increased for concurrency
-    queueLimit: 0
+    connectionLimit: 30, // Optimized to prevent MySQL ER_CON_COUNT_ERROR
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000
 });
 
 module.exports = db;
+

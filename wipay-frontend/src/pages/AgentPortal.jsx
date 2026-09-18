@@ -10,6 +10,9 @@ export default function AgentPortal() {
   const { admin, logout } = useAuth()
   const { showToast } = useToast()
 
+  const isSubscriptionTenant = admin?.billing_type === 'subscription'
+  const isExpired = isSubscriptionTenant && admin?.subscription_expiry && new Date(admin.subscription_expiry) < new Date()
+
   const [stats, setStats] = useState({ todaySales: 0, stock: 0 })
   const [packages, setPackages] = useState([])
   const [sales, setSales] = useState([])
@@ -87,10 +90,15 @@ export default function AgentPortal() {
   const formatValidity = (pkg) => {
     if (!pkg) return 'Unlimited'
     if (pkg.validity_unit === 'minutes' && pkg.validity_minutes > 0) return `${pkg.validity_minutes} mins`
-    if (pkg.validity_hours > 0) {
-      if (pkg.validity_hours < 1) return `${Math.round(pkg.validity_hours * 60)} mins`
-      return `${pkg.validity_hours} hrs`
+    const hours = parseFloat(pkg.validity_hours || 0)
+    if (hours > 0) {
+      if (hours >= 720 && hours % 720 === 0) return `${hours / 720} Mo`
+      if (hours >= 168 && hours % 168 === 0) return `${hours / 168} Wk`
+      if (hours >= 24 && hours % 24 === 0) return `${hours / 24} Days`
+      if (hours < 1) return `${Math.round(hours * 60)} mins`
+      return `${hours} hrs`
     }
+    if (pkg.validity_minutes > 0) return `${pkg.validity_minutes} mins`
     return 'Unlimited'
   }
 
@@ -172,6 +180,12 @@ export default function AgentPortal() {
           </h2>
           <p className="text-xs text-gray-400 mb-5">Select a package and enter customer details to sell a voucher code instantly</p>
 
+          {isExpired && (
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600 mb-5 text-center">
+              ⚠️ Tenant Subscription Expired: Agent voucher sales are suspended until your administrator renews subscription.
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
@@ -233,8 +247,8 @@ export default function AgentPortal() {
               <div className="pt-2">
                 <button 
                   type="submit" 
-                  disabled={selling || !selectedPkgId}
-                  className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-emerald-200 transition text-sm flex items-center justify-center gap-2 w-full sm:w-auto min-w-[200px]"
+                  disabled={selling || !selectedPkgId || isExpired}
+                  className="btn-primary bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-emerald-200 transition text-sm flex items-center justify-center gap-2 w-full sm:w-auto min-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {selling ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Send className="w-4 h-4" /> Issue & Print Voucher</>}
                 </button>

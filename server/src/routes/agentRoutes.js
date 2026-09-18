@@ -74,7 +74,7 @@ const authenticateAgent = (req, res, next) => {
                     const { billing_type, subscription_expiry } = adminRows[0];
                     
                     const isSubscriptionBased = billing_type === 'subscription';
-                    const isExpired = new Date(subscription_expiry) < new Date();
+                    const isExpired = subscription_expiry && new Date(subscription_expiry) < new Date();
 
                     if (isSubscriptionBased && isExpired) {
                         return res.status(403).json({ 

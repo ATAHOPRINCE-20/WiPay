@@ -16,6 +16,41 @@ const upload = multer({ dest: 'uploads/' });
 // Middleware applied to all routes in this file
 router.use('/admin', authenticateToken);
 
+// Middleware to block expired subscription tenants from generating new vouchers while allowing dashboard access
+const checkSubscriptionActive = async (req, res, next) => {
+    if (!req.user || req.user.role === 'super_admin' || req.user.role === 'agent') return next();
+
+    // Only block voucher generation and import endpoints when subscription is expired
+    const restrictedPaths = [
+        '/admin/vouchers/generate',
+        '/admin/vouchers/import'
+    ];
+
+    const isRestricted = restrictedPaths.some(p => req.path.startsWith(p));
+    if (!isRestricted) {
+        return next();
+    }
+
+    try {
+        const [rows] = await db.query('SELECT billing_type, subscription_expiry FROM admins WHERE id = ?', [req.user.id]);
+        if (rows.length > 0) {
+            const { billing_type, subscription_expiry } = rows[0];
+            if (billing_type === 'subscription' && subscription_expiry && new Date(subscription_expiry) < new Date()) {
+                return res.status(403).json({
+                    error: 'Your subscription has expired. Please renew your subscription to generate new vouchers.',
+                    code: 'SUBSCRIPTION_EXPIRED'
+                });
+            }
+        }
+        next();
+    } catch (err) {
+        console.error('Subscription check error:', err);
+        next();
+    }
+};
+
+router.use('/admin', checkSubscriptionActive);
+
 // --- Categories ---
 router.post('/admin/categories', async (req, res) => {
     const { name, router_id } = req.body;
@@ -119,7 +154,7 @@ router.delete('/admin/categories/:id', async (req, res) => {
 });
 
 
-const { generateWgKeys, allocateVpnIp, rebuildWireGuardConfig } = require('../utils/vpn');
+const { generateWgKeys, allocateVpnIp, rebuildWireGuardConfig, getWireGuardPeerStatus } = require('../utils/vpn');
 const { execSync } = require('child_process');
 
 function getVpsWgPublicKey() {
@@ -171,10 +206,12 @@ function generateMikrotikScript({ routerName, vpnIp, routerPrivateKey, vpsPublic
 # CRITICAL: dns-name must be a fake local name like "wifi.spot" — NOT the portal domain!
 # If dns-name = portal domain, MikroTik intercepts all HTTPS to that domain and
 # sends TCP RST -> ERR_CONNECTION_CLOSED on phones (no SSL cert on router).
-:do { /ip hotspot profile add name=hsprof-ugpay hotspot-address=192.168.88.1 dns-name="wifi.spot" html-directory=hotspot use-radius=yes login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none radius-interim-update=1m idle-timeout=5m keepalive-timeout=none } on-error={}
-:do { /ip hotspot profile set hsprof-ugpay hotspot-address=192.168.88.1 dns-name="wifi.spot" login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none use-radius=yes radius-interim-update=1m idle-timeout=5m keepalive-timeout=none } on-error={}
-:do { /ip hotspot profile set [find default=yes] dns-name="wifi.spot" login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none use-radius=yes radius-interim-update=1m idle-timeout=5m keepalive-timeout=none } on-error={}
-:do { /ip hotspot add name=hs-ugpay interface=bridge-lan address-pool=hs-pool-1 profile=hsprof-ugpay idle-timeout=5m keepalive-timeout=none disabled=no } on-error={}
+:do { /ip hotspot profile add name=hsprof-ugpay hotspot-address=192.168.88.1 dns-name="wifi.spot" html-directory=hotspot use-radius=yes login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none radius-interim-update=1m idle-timeout=3m keepalive-timeout=2m } on-error={}
+:do { /ip hotspot profile set hsprof-ugpay hotspot-address=192.168.88.1 dns-name="wifi.spot" html-directory=hotspot login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none use-radius=yes radius-interim-update=1m idle-timeout=3m keepalive-timeout=2m } on-error={}
+:do { /ip hotspot profile set [find default=yes] dns-name="wifi.spot" html-directory=hotspot login-by=cookie,http-pap http-cookie-lifetime=30d mac-cookie-timeout=30d ssl-certificate=none use-radius=yes radius-interim-update=1m idle-timeout=3m keepalive-timeout=2m } on-error={}
+:do { /ip hotspot user profile set [find] idle-timeout=3m keepalive-timeout=2m } on-error={}
+:do { /ip hotspot add name=hs-ugpay interface=bridge-lan address-pool=hs-pool-1 profile=hsprof-ugpay idle-timeout=3m keepalive-timeout=2m disabled=no } on-error={}
+:do { /ip hotspot set [find] profile=hsprof-ugpay } on-error={}
 
 # 7. Firewall Forward Rules — MUST be placed before any drop rules!
 # These allow HTTP(80) & HTTPS(443) to the VPS before hotspot can intercept.
@@ -189,6 +226,8 @@ function generateMikrotikScript({ routerName, vpnIp, routerPrivateKey, vpsPublic
 :do { /ip hotspot walled-garden ip add action=accept protocol=17 dst-port=53 comment="Allow DNS" } on-error={}
 :do { /ip hotspot walled-garden ip add action=accept dst-address=${vpsPublicIp} comment="Allow WiPay VPS All Ports" } on-error={}
 :do { /ip hotspot walled-garden add dst-host="${centralDomain}" action=allow comment="Allow Central Portal" } on-error={}
+:do { /ip hotspot walled-garden add dst-host="ugpay.tech" action=allow comment="Allow UgPay Main Website" } on-error={}
+:do { /ip hotspot walled-garden add dst-host="*.ugpay.tech" action=allow comment="Allow UgPay Subdomains" } on-error={}
 :do { /ip hotspot walled-garden add dst-host="*.relworx.com" action=allow comment="Allow Relworx Gateway" } on-error={}
 :do { /ip hotspot walled-garden add dst-host="fonts.googleapis.com" action=allow comment="Allow Google Fonts" } on-error={}
 :do { /ip hotspot walled-garden add dst-host="fonts.gstatic.com" action=allow comment="Allow Google Fonts Assets" } on-error={}
@@ -216,20 +255,17 @@ function generateMikrotikScript({ routerName, vpnIp, routerPrivateKey, vpsPublic
 }
 /radius incoming set accept=yes port=3799
 
-# 12. Hotspot login.html — CRITICAL NOTES:
-# - Use https:// + domain name (NOT raw IP) — Nginx 404s on raw IP, serves app on domain only.
-# - The dns-name="wifi.spot" above ensures MikroTik does NOT own ${centralDomain},
-#   so HTTPS to ${centralDomain} passes straight to VPS without MikroTik interception.
-:if ([:len [/file find name="hotspot/login.html"]] > 0) do={
-  /file set "hotspot/login.html" contents="<!DOCTYPE html><html><head><meta charset='utf-8'><meta http-equiv='refresh' content='0; url=https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)' /><title>Connecting...</title></head><body><div style='font-family:sans-serif;text-align:center;margin-top:100px;color:#4B5563'><p style='font-weight:bold'>Connecting to Wi-Fi Portal...</p><p style='font-size:14px'>If not redirected, <a href='https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)'>click here</a>.</p></div></body></html>"
-} else={
-  /file add name="hotspot/login.html" contents="<!DOCTYPE html><html><head><meta charset='utf-8'><meta http-equiv='refresh' content='0; url=https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)' /><title>Connecting...</title></head><body><div style='font-family:sans-serif;text-align:center;margin-top:100px;color:#4B5563'><p style='font-weight:bold'>Connecting to Wi-Fi Portal...</p><p style='font-size:14px'>If not redirected, <a href='https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)'>click here</a>.</p></div></body></html>"
-}
+# 12. Hotspot login.html Redirection — Universal Flash & Root Filesystem Compatibility
+:do {
+  :foreach f in=[/file find name~"login.html"] do={
+    /file set $f contents="<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><meta http-equiv='refresh' content='0; url=https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)' /><title>Connecting to Wi-Fi...</title><script type='text/javascript'>window.location.replace('https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)');</script></head><body style='font-family:sans-serif;text-align:center;padding-top:40px;'><div style='max-width:400px;margin:0 auto;background:#ffffff;padding:25px;border-radius:10px;'><h3 style='color:#0284c7;margin:0 0 10px 0;'>Connecting to Wi-Fi...</h3><p style='color:#64748b;font-size:14px;margin-bottom:20px;'>Redirecting to login portal...</p><a href='https://${centralDomain}/captive-portal?slug=${portalSlug}&link-login=\\$(link-login-only)&mac=\\$(mac)&ip=\\$(ip)&link-orig=\\$(link-orig-esc)&error=\\$(error)' style='display:inline-block;background:#0284c7;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px;'>Click Here to Login</a></div></body></html>"
+  }
+} on-error={}
 `;
 }
 
 // --- Routers ---
-const { fetchLiveActiveHotspotUsers, fetchConnectedDevices, disconnectHotspotUser, fetchRouterLogs } = require('../utils/mikrotikApi');
+const { fetchLiveActiveHotspotUsers, fetchConnectedDevices, disconnectHotspotUser, fetchRouterLogs, fetchRouterHealth } = require('../utils/mikrotikApi');
 
 router.post('/admin/routers', async (req, res) => {
     const { name, ip_address, secret, api_port, api_user, api_password } = req.body;
@@ -352,7 +388,22 @@ router.get('/admin/routers', async (req, res) => {
             WHERE r.admin_id = ? 
             ORDER BY r.created_at DESC
         `, [req.user.id]);
-        res.json(rows);
+
+        const peerStatusMap = getWireGuardPeerStatus();
+        const now = Math.floor(Date.now() / 1000);
+
+        const result = rows.map(r => {
+            const lastHandshakeTs = peerStatusMap.get(r.wg_public_key) || 0;
+            // Online if last WireGuard handshake was within 180 seconds (3 minutes)
+            const isOnline = lastHandshakeTs > 0 && (now - lastHandshakeTs) <= 180;
+            return {
+                ...r,
+                is_online: isOnline,
+                last_handshake_at: lastHandshakeTs > 0 ? new Date(lastHandshakeTs * 1000).toISOString() : null
+            };
+        });
+
+        res.json(result);
     } catch (err) {
         console.error('Fetch Routers Error:', err);
         res.status(500).json({ error: 'Failed to fetch routers' });
@@ -361,35 +412,6 @@ router.get('/admin/routers', async (req, res) => {
 
 router.get('/admin/routers/sessions', async (req, res) => {
     try {
-        // Auto-activate any newly connected vouchers so first_used_at and expires_at are permanently calculated from first login
-        await db.query(`
-            UPDATE vouchers v
-            INNER JOIN radacct a ON LOWER(a.username) = LOWER(v.code)
-            LEFT JOIN packages p ON p.id = v.package_id
-            SET v.first_used_at = COALESCE(v.first_used_at, a.acctstarttime),
-                v.is_used = 1,
-                v.expires_at = COALESCE(v.expires_at, DATE_ADD(a.acctstarttime, INTERVAL (
-                    CASE 
-                        WHEN p.validity_unit = 'minutes' AND p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                        WHEN p.validity_hours IS NOT NULL AND p.validity_hours > 0 THEN (p.validity_hours * 3600)
-                        WHEN p.validity_minutes IS NOT NULL AND p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                        ELSE 86400
-                    END
-                ) SECOND))
-            WHERE v.first_used_at IS NULL AND a.acctstoptime IS NULL
-        `).catch(err => console.warn('[Auto Activation Warning]:', err.message));
-
-        // Auto-close any expired sessions in radacct where expires_at <= NOW()
-        await db.query(`
-            UPDATE radacct a
-            INNER JOIN vouchers v ON LOWER(v.code) = LOWER(a.username)
-            SET a.acctstoptime = COALESCE(a.acctstoptime, NOW()),
-                a.acctterminatecause = 'Session-Timeout'
-            WHERE a.acctstoptime IS NULL
-              AND v.expires_at IS NOT NULL
-              AND v.expires_at <= NOW()
-        `).catch(err => console.warn('[Auto Session Cleanup Warning]:', err.message));
-
         const [rows] = await db.query(`
             SELECT a.username, a.nasipaddress, a.framedipaddress, a.callingstationid,
                    a.acctinputoctets, a.acctoutputoctets, MAX(a.acctstarttime) as acctstarttime, a.acctsessiontime,
@@ -406,7 +428,7 @@ router.get('/admin/routers/sessions', async (req, res) => {
                    END) as session_time_left
             FROM radacct a
             LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
-            LEFT JOIN vouchers v ON LOWER(v.code) = LOWER(a.username)
+            LEFT JOIN vouchers v ON (v.code = a.username)
             LEFT JOIN packages p ON p.id = v.package_id
             WHERE a.acctstoptime IS NULL
               AND (v.expires_at IS NULL OR v.expires_at > NOW())
@@ -416,14 +438,10 @@ router.get('/admin/routers/sessions', async (req, res) => {
             LIMIT 200
         `, [req.user.id, req.user.id, req.user.id]);
 
-        // Trigger background cleanup in case any stale sessions need hardware disconnect
-        const { cleanupStaleRadiusSessions } = require('../utils/radius');
-        cleanupStaleRadiusSessions().catch(() => {});
-
         res.json(rows);
     } catch (err) {
         console.error('Fetch Sessions Error:', err);
-        res.json([]);
+        res.status(500).json({ error: 'Failed to fetch active sessions' });
     }
 });
 
@@ -453,24 +471,35 @@ router.post('/admin/routers/sessions/terminate', async (req, res) => {
             }
         }
 
-        // 2. Disconnect in FreeRADIUS
-        if (username) {
-            await disconnectVoucherSession(username, 'Admin-Reset').catch(e => console.warn('[RADIUS Disconnect Warning]:', e.message));
+        // 2. Disconnect in FreeRADIUS, invalidate voucher, & mark session stopped in radacct
+        if (targetUser) {
+            await disconnectVoucherSession(targetUser, 'Admin-Reset').catch(e => console.warn('[RADIUS Disconnect Warning]:', e.message));
         }
 
-        // 3. Mark session stopped in radacct (strictly verified for logged-in tenant)
-        await db.query(`
-            UPDATE radacct a
+        // 3. Ensure any tenant-scoped active sessions are stopped strictly by Primary Key
+        const [tenantSessions] = await db.query(`
+            SELECT a.radacctid 
+            FROM radacct a
             LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
             LEFT JOIN vouchers v ON v.code = a.username
             LEFT JOIN packages p ON p.id = v.package_id
-            SET a.acctstoptime = NOW(), a.acctterminatecause = 'Admin-Reset' 
             WHERE (a.username = ? OR a.callingstationid = ?) 
               AND a.acctstoptime IS NULL
               AND (r.admin_id = ? OR v.admin_id = ? OR p.admin_id = ?)
         `, [targetUser, targetUser, req.user.id, req.user.id, req.user.id]);
 
-        res.json({ message: `Session for ${targetUser} successfully terminated.`, success: true });
+        if (tenantSessions.length > 0) {
+            const ids = tenantSessions.map(s => s.radacctid);
+            await db.query(
+                "UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Admin-Reset' WHERE radacctid IN (?)",
+                [ids]
+            );
+        }
+
+        req.io.emit('data_update', { type: 'sessions' });
+        req.io.emit('data_update', { type: 'vouchers' });
+
+        res.json({ message: `Session for ${targetUser} terminated and voucher permanently invalidated.`, success: true });
     } catch (err) {
         console.error('[Terminate Session Error]:', err);
         res.status(500).json({ error: 'Failed to terminate session: ' + err.message });
@@ -651,6 +680,31 @@ router.get('/admin/routers/:id/logs', async (req, res) => {
     }
 });
 
+router.get('/admin/routers/:id/health', async (req, res) => {
+    try {
+        const [routers] = await db.query('SELECT * FROM routers WHERE id = ? AND admin_id = ?', [req.params.id, req.user.id]);
+        if (routers.length === 0) return res.status(404).json({ error: 'Router not found' });
+
+        const r = routers[0];
+        const health = await fetchRouterHealth({
+            host: r.ip_address,
+            port: r.api_port || 8728,
+            user: r.api_user || 'admin',
+            password: r.api_password || ''
+        });
+
+        res.json({
+            router_id: r.id,
+            router_name: r.name,
+            ip_address: r.ip_address,
+            health
+        });
+    } catch (err) {
+        console.error('Fetch Router Health Error:', err);
+        res.status(500).json({ error: 'Failed to fetch router health metrics: ' + err.message });
+    }
+});
+
 router.post('/admin/routers/:id/disconnect-user', async (req, res) => {
     const { username } = req.body;
     if (!username) return res.status(400).json({ error: 'Username is required' });
@@ -752,45 +806,62 @@ router.delete('/admin/routers/:id', async (req, res) => {
     }
 });
 
+// Helper to calculate total hours and minutes from package duration payload
+function computePackageValidity(body) {
+    let unit = body.validity_unit || 'hours';
+    const rawValue = parseFloat(body.validity_value);
+    const rawHours = parseFloat(body.validity_hours);
+    const rawMins = parseInt(body.validity_minutes, 10);
+    const rawDays = parseFloat(body.validity_days);
+    const rawWeeks = parseFloat(body.validity_weeks);
+    const rawMonths = parseFloat(body.validity_months);
+
+    let vHours = 0;
+    let vMins = 0;
+
+    if (unit === 'minutes' || unit === 'mins') {
+        unit = 'minutes';
+        vMins = !isNaN(rawMins) && rawMins > 0 ? rawMins : (!isNaN(rawValue) ? rawValue : Math.round(rawHours * 60));
+        vHours = vMins / 60;
+    } else if (unit === 'days') {
+        const qty = !isNaN(rawDays) ? rawDays : (!isNaN(rawValue) ? rawValue : (!isNaN(rawHours) && rawHours > 0 ? (rawHours < 24 ? rawHours : rawHours / 24) : 1));
+        vHours = (qty && qty > 0 ? qty : 1) * 24;
+        vMins = Math.round(vHours * 60);
+        unit = 'hours';
+    } else if (unit === 'weeks') {
+        const qty = !isNaN(rawWeeks) ? rawWeeks : (!isNaN(rawValue) ? rawValue : (!isNaN(rawHours) && rawHours > 0 ? (rawHours < 168 ? rawHours : rawHours / 168) : 1));
+        vHours = (qty && qty > 0 ? qty : 1) * 168;
+        vMins = Math.round(vHours * 60);
+        unit = 'hours';
+    } else if (unit === 'months') {
+        const qty = !isNaN(rawMonths) ? rawMonths : (!isNaN(rawValue) ? rawValue : (!isNaN(rawHours) && rawHours > 0 ? (rawHours < 720 ? rawHours : rawHours / 720) : 1));
+        vHours = (qty && qty > 0 ? qty : 1) * 720;
+        vMins = Math.round(vHours * 60);
+        unit = 'hours';
+    } else {
+        unit = 'hours';
+        vHours = !isNaN(rawHours) && rawHours > 0 ? rawHours : (!isNaN(rawValue) ? rawValue : (!isNaN(rawMins) ? rawMins / 60 : 0));
+        vMins = Math.round(vHours * 60);
+    }
+
+    return { vHours, vMins, unit };
+}
+
 // --- Packages ---
 router.post('/admin/packages', async (req, res) => {
-    const { name, price, validity_hours, validity_minutes, validity_unit, category_id, data_limit_mb, router_id, rate_limit, simultaneous_devices } = req.body;
+    const { name, price, category_id, data_limit_mb, router_id, rate_limit, simultaneous_devices, device_type } = req.body;
 
     if (!name || !price || !category_id) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
     try {
-        let unit = validity_unit || 'hours';
-        let vHours = parseFloat(validity_hours) || 0;
-        let vMins = parseInt(validity_minutes, 10) || 0;
-
-        if (unit === 'minutes' || unit === 'mins') {
-            unit = 'minutes';
-            vHours = vMins > 0 ? vMins / 60 : vHours;
-            vMins = vMins > 0 ? vMins : Math.round(vHours * 60);
-        } else if (unit === 'days') {
-            vHours = (parseFloat(req.body.validity_days) || vHours || 1) * 24;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else if (unit === 'weeks') {
-            vHours = (parseFloat(req.body.validity_weeks) || (vHours > 0 ? vHours / 168 : 1)) * 168;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else if (unit === 'months') {
-            vHours = (parseFloat(req.body.validity_months) || (vHours > 0 ? vHours / 720 : 1)) * 720;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else {
-            unit = 'hours';
-            vHours = vHours > 0 ? vHours : (vMins / 60);
-            vMins = Math.round(vHours * 60);
-        }
+        const { vHours, vMins, unit } = computePackageValidity(req.body);
 
         await db.query(`
-            INSERT INTO packages (category_id, name, price, validity_hours, validity_minutes, validity_unit, data_limit_mb, rate_limit, simultaneous_devices, created_at, admin_id, router_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
-        `, [category_id, name, price, vHours, vMins, unit, data_limit_mb || 0, rate_limit || '1M/1M', simultaneous_devices || 1, req.user.id, router_id || null]);
+            INSERT INTO packages (category_id, name, price, validity_hours, validity_minutes, validity_unit, data_limit_mb, rate_limit, simultaneous_devices, device_type, created_at, admin_id, router_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
+        `, [category_id, name, price, vHours, vMins, unit, data_limit_mb || 0, rate_limit || '1M/1M', simultaneous_devices || 1, device_type || 'mobile', req.user.id, router_id || null]);
         req.io.emit('data_update', { type: 'packages' });
         res.json({ message: 'Package created successfully' });
     } catch (err) {
@@ -821,7 +892,7 @@ router.get('/admin/packages', async (req, res) => {
         const targetAdminId = req.user.role === 'agent' ? req.user.admin_id : req.user.id;
         const router_id = req.query.router_id;
         let query = `
-            SELECT p.id, p.name, p.price, p.validity_hours, p.validity_minutes, p.validity_unit, p.data_limit_mb, p.rate_limit, p.simultaneous_devices, p.is_active, p.created_at, c.name as category_name, p.router_id,
+            SELECT p.id, p.name, p.price, p.validity_hours, p.validity_minutes, p.validity_unit, p.data_limit_mb, p.rate_limit, p.simultaneous_devices, COALESCE(p.device_type, 'mobile') AS device_type, p.is_active, p.created_at, c.name as category_name, p.router_id,
                    (SELECT COUNT(*) FROM vouchers v WHERE v.package_id = p.id AND (v.is_used = 0 OR v.is_used IS NULL)) as vouchers_count
             FROM packages p 
             LEFT JOIN categories c ON p.category_id = c.id 
@@ -845,7 +916,7 @@ router.get('/admin/packages', async (req, res) => {
 });
 
 router.put('/admin/packages/:id', async (req, res) => {
-    const { name, price, validity_hours, validity_minutes, validity_unit, data_limit_mb, category_id, rate_limit, simultaneous_devices, is_active } = req.body;
+    const { name, price, data_limit_mb, category_id, rate_limit, simultaneous_devices, device_type, is_active } = req.body;
 
     // Handle partial toggle update if only is_active is provided
     if (is_active !== undefined && !name && !price && !category_id) {
@@ -864,37 +935,13 @@ router.put('/admin/packages/:id', async (req, res) => {
     }
 
     try {
-        let unit = validity_unit || 'hours';
-        let vHours = parseFloat(validity_hours) || 0;
-        let vMins = parseInt(validity_minutes, 10) || 0;
-
-        if (unit === 'minutes' || unit === 'mins') {
-            unit = 'minutes';
-            vHours = vMins > 0 ? vMins / 60 : vHours;
-            vMins = vMins > 0 ? vMins : Math.round(vHours * 60);
-        } else if (unit === 'days') {
-            vHours = (parseFloat(req.body.validity_days) || vHours || 1) * 24;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else if (unit === 'weeks') {
-            vHours = (parseFloat(req.body.validity_weeks) || (vHours > 0 ? vHours / 168 : 1)) * 168;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else if (unit === 'months') {
-            vHours = (parseFloat(req.body.validity_months) || (vHours > 0 ? vHours / 720 : 1)) * 720;
-            vMins = Math.round(vHours * 60);
-            unit = 'hours';
-        } else {
-            unit = 'hours';
-            vHours = vHours > 0 ? vHours : (vMins / 60);
-            vMins = Math.round(vHours * 60);
-        }
+        const { vHours, vMins, unit } = computePackageValidity(req.body);
 
         const [result] = await db.query(`
             UPDATE packages 
-            SET name = ?, price = ?, validity_hours = ?, validity_minutes = ?, validity_unit = ?, data_limit_mb = ?, category_id = ?, rate_limit = ?, simultaneous_devices = ?, is_active = ?
+            SET name = ?, price = ?, validity_hours = ?, validity_minutes = ?, validity_unit = ?, data_limit_mb = ?, category_id = ?, rate_limit = ?, simultaneous_devices = ?, device_type = ?, is_active = ?
             WHERE id = ? AND admin_id = ?
-        `, [name, price, vHours, vMins, unit, data_limit_mb || 0, category_id, rate_limit || '1M/1M', simultaneous_devices || 1, is_active !== undefined ? (is_active ? 1 : 0) : 1, req.params.id, req.user.id]);
+        `, [name, price, vHours, vMins, unit, data_limit_mb || 0, category_id, rate_limit || '1M/1M', simultaneous_devices || 1, device_type || 'mobile', is_active !== undefined ? (is_active ? 1 : 0) : 1, req.params.id, req.user.id]);
 
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Package not found' });
 
@@ -903,6 +950,72 @@ router.put('/admin/packages/:id', async (req, res) => {
     } catch (err) {
         console.error('Update Package Error:', err);
         res.status(500).json({ error: 'Failed to update package: ' + err.message });
+    }
+});
+
+// Admin Activate Smart TV / MAC Device
+router.post('/admin/vouchers/activate-tv', async (req, res) => {
+    const { mac_address, package_id, router_id, comment } = req.body;
+
+    if (!mac_address || !package_id) {
+        return res.status(400).json({ error: 'MAC address and Package ID are required' });
+    }
+
+    // Clean & validate MAC address
+    const cleanMac = mac_address.trim().toLowerCase().replace(/[^0-9a-f]/g, '');
+    if (cleanMac.length !== 12) {
+        return res.status(400).json({ error: 'Invalid MAC address format. Must contain 12 hexadecimal characters (e.g. AA:BB:CC:DD:EE:FF).' });
+    }
+
+    const formattedMac = cleanMac.match(/.{1,2}/g).join(':').toUpperCase();
+
+    try {
+        const [packages] = await db.query(
+            'SELECT * FROM packages WHERE id = ? AND admin_id = ?',
+            [package_id, req.user.id]
+        );
+
+        if (packages.length === 0) {
+            return res.status(404).json({ error: 'Selected package not found' });
+        }
+
+        const pkg = packages[0];
+        let sessionSeconds = 86400;
+        if (pkg.validity_unit === 'minutes' && pkg.validity_minutes > 0) {
+            sessionSeconds = pkg.validity_minutes * 60;
+        } else if (pkg.validity_hours > 0) {
+            sessionSeconds = pkg.validity_hours * 3600;
+        }
+
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + sessionSeconds * 1000);
+
+        // Delete any past expired TV vouchers for this exact MAC address
+        await db.query('DELETE FROM vouchers WHERE (code = ? OR code = ?) AND (status = "expired" OR status = "terminated")', [cleanMac, formattedMac]).catch(() => {});
+
+        // Insert new active TV voucher
+        await db.query(`
+            INSERT INTO vouchers (code, package_id, is_used, status, first_used_at, expires_at, comment, admin_id, router_id)
+            VALUES (?, ?, 1, 'active', NOW(), ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE package_id = VALUES(package_id), status = 'active', first_used_at = NOW(), expires_at = VALUES(expires_at), comment = VALUES(comment)
+        `, [formattedMac, package_id, expiresAt, comment || `Smart TV Pass (${formattedMac})`, req.user.id, router_id || pkg.router_id || null]);
+
+        // Sync RADIUS authentication & session timeout
+        const { syncVoucherToRadius } = require('../utils/radius');
+        await syncVoucherToRadius(formattedMac, package_id);
+        await syncVoucherToRadius(cleanMac, package_id);
+
+        req.io.emit('data_update', { type: 'vouchers' });
+
+        res.json({
+            success: true,
+            message: `Smart TV (${formattedMac}) successfully activated for ${pkg.name}!`,
+            mac_address: formattedMac,
+            expires_at: expiresAt
+        });
+    } catch (err) {
+        console.error('Activate TV Error:', err);
+        res.status(500).json({ error: 'Failed to activate Smart TV device: ' + err.message });
     }
 });
 
@@ -1089,6 +1202,14 @@ router.post('/admin/vouchers/generate', async (req, res) => {
     }
 
     try {
+        const [adminRows] = await db.query('SELECT billing_type, subscription_expiry FROM admins WHERE id = ?', [req.user.id]);
+        if (adminRows.length > 0) {
+            const admin = adminRows[0];
+            if (admin.billing_type === 'subscription' && admin.subscription_expiry && new Date(admin.subscription_expiry) < new Date()) {
+                return res.status(403).json({ error: 'Subscription expired. Please renew your subscription to generate new vouchers.' });
+            }
+        }
+
         const [pkg] = await db.query('SELECT id, router_id FROM packages WHERE id = ? AND admin_id = ?', [package_id, req.user.id]);
         if (pkg.length === 0) return res.status(404).json({ error: 'Package not found' });
 
@@ -1246,6 +1367,107 @@ router.post('/admin/vouchers/bulk-delete', async (req, res) => {
     }
 });
 
+// Delete Selected Vouchers (Multi-select delete from DB & FreeRADIUS)
+router.post('/admin/vouchers/delete-selected', async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'No voucher IDs provided' });
+    }
+
+    try {
+        const [vouchers] = await db.query('SELECT code FROM vouchers WHERE id IN (?) AND admin_id = ?', [ids, req.user.id]);
+        if (vouchers.length === 0) return res.status(404).json({ error: 'No matching vouchers found' });
+
+        await db.query('DELETE FROM vouchers WHERE id IN (?) AND admin_id = ?', [ids, req.user.id]);
+
+        for (const v of vouchers) {
+            await deleteVoucherFromRadius(v.code).catch(err => console.error('[RADIUS] Deletion error:', err));
+            await disconnectVoucherSession(v.code, 'Admin-Delete').catch(() => {});
+        }
+
+        req.io.emit('data_update', { type: 'vouchers' });
+        res.json({ success: true, message: `Deleted ${vouchers.length} voucher(s) successfully from database and FreeRADIUS` });
+    } catch (err) {
+        console.error('Delete Selected Vouchers Error:', err);
+        res.status(500).json({ error: 'Failed to delete selected vouchers: ' + err.message });
+    }
+});
+
+// Unbind Device from Voucher (Clear MAC & active sessions while keeping voucher active for new device)
+router.post('/admin/vouchers/unbind-device', async (req, res) => {
+    const { voucher_id, code, mac } = req.body;
+    if (!voucher_id && !code && !mac) {
+        return res.status(400).json({ error: 'Voucher ID, code, or MAC address is required' });
+    }
+
+    try {
+        let query = 'SELECT * FROM vouchers WHERE admin_id = ? AND (id = ? OR LOWER(code) = LOWER(?))';
+        let params = [req.user.id, voucher_id || 0, code || ''];
+        if (mac && !voucher_id && !code) {
+            query = 'SELECT * FROM vouchers WHERE admin_id = ? AND (used_by = ? OR comment LIKE ?)';
+            params = [req.user.id, mac, `%${mac}%`];
+        }
+
+        const [vouchers] = await db.query(query, params);
+        if (vouchers.length === 0) {
+            return res.status(404).json({ error: 'Voucher or device binding not found' });
+        }
+
+        const v = vouchers[0];
+        const vCode = v.code;
+        const targetMac = mac || v.used_by;
+
+        // Disconnect active session on all routers owned by admin
+        const [routers] = await db.query('SELECT * FROM routers WHERE admin_id = ?', [req.user.id]);
+        for (const r of routers) {
+            if (targetMac || vCode) {
+                await disconnectHotspotUser({
+                    host: r.ip_address,
+                    port: r.api_port || 8728,
+                    user: r.api_user || 'admin',
+                    password: r.api_password || ''
+                }, targetMac || vCode).catch(() => {});
+            }
+        }
+
+        // Close radacct active session
+        if (vCode || targetMac) {
+            await db.query(`
+                UPDATE radacct 
+                SET acctstoptime = NOW(), acctterminatecause = 'Device-Unbound' 
+                WHERE (LOWER(username) = LOWER(?) OR callingstationid = ?) AND acctstoptime IS NULL
+            `, [vCode, targetMac || '']).catch(() => {});
+        }
+
+        // Reset device binding on voucher
+        const isTimeExpired = v.expires_at && new Date(v.expires_at) <= new Date();
+        const newStatus = isTimeExpired ? 'expired' : 'active';
+        const newIsUsed = isTimeExpired ? 1 : 0;
+
+        await db.query(
+            'UPDATE vouchers SET used_by = NULL, is_used = ?, status = ? WHERE id = ?',
+            [newIsUsed, newStatus, v.id]
+        );
+
+        // Re-sync RADIUS rules so the voucher can immediately log in on another device
+        if (!isTimeExpired && v.package_id) {
+            const { syncVoucherToRadius } = require('../utils/radius');
+            await syncVoucherToRadius(vCode, v.package_id).catch(() => {});
+        }
+
+        req.io.emit('data_update', { type: 'vouchers' });
+        req.io.emit('data_update', { type: 'sessions' });
+
+        res.json({
+            success: true,
+            message: `Device (${targetMac || 'MAC'}) successfully unbound from voucher '${vCode}'. Voucher can now be used on another device.`
+        });
+    } catch (err) {
+        console.error('[Unbind Device Error]:', err);
+        res.status(500).json({ error: 'Failed to unbind device: ' + err.message });
+    }
+});
+
 // Single Voucher Deletion (Admin action - strictly scoped to tenant)
 router.delete('/admin/vouchers/:id', async (req, res) => {
     try {
@@ -1255,6 +1477,7 @@ router.delete('/admin/vouchers/:id', async (req, res) => {
         const code = vouchers[0].code;
         await db.query('DELETE FROM vouchers WHERE id = ? AND admin_id = ?', [req.params.id, req.user.id]);
         await deleteVoucherFromRadius(code).catch(err => console.error('[RADIUS] Deletion error:', err));
+        await disconnectVoucherSession(code, 'Admin-Delete').catch(() => {});
 
         req.io.emit('data_update', { type: 'vouchers' });
         res.json({ success: true, message: `Voucher '${code}' deleted successfully` });
@@ -1552,9 +1775,9 @@ router.delete('/admin/vouchers', async (req, res) => {
 // --- Transactions / Payments History ---
 router.get('/admin/transactions', async (req, res) => {
     try {
-        const { router_id } = req.query;
+        const { router_id, channel, status, from, to } = req.query;
         let query = `
-            SELECT t.id, t.transaction_ref, t.phone_number, t.amount, t.status, t.payment_method, t.voucher_code, t.created_at, 
+            SELECT t.id, t.transaction_ref, t.phone_number, t.amount, t.status, t.payment_method, t.voucher_code, t.webhook_data, t.created_at, 
                    p.name as package_name, r.name as router_name, a.username as agent_name
             FROM transactions t
             LEFT JOIN packages p ON t.package_id = p.id
@@ -1569,6 +1792,27 @@ router.get('/admin/transactions', async (req, res) => {
             params.push(router_id);
         }
 
+        if (channel === 'momo' || channel === 'mobile_money') {
+            query += " AND (t.payment_method IS NULL OR t.payment_method != 'cash_agent')";
+        } else if (channel === 'agent' || channel === 'cash_agent') {
+            query += " AND t.payment_method = 'cash_agent'";
+        }
+
+        if (status) {
+            query += ' AND t.status = ?';
+            params.push(status);
+        }
+
+        if (from) {
+            query += ' AND DATE(t.created_at) >= ?';
+            params.push(from);
+        }
+
+        if (to) {
+            query += ' AND DATE(t.created_at) <= ?';
+            params.push(to);
+        }
+
         query += ' ORDER BY t.created_at DESC LIMIT 500';
 
         const [rows] = await db.query(query, params);
@@ -1581,12 +1825,18 @@ router.get('/admin/transactions', async (req, res) => {
 
 
 // --- Analytics (Graphs) ---
-// --- Analytics (Graphs) ---
 router.get('/admin/analytics/transactions', async (req, res) => {
-    const { period } = req.query; // 'weekly', 'monthly', 'yearly'
+    const { period, channel } = req.query; // 'weekly', 'monthly', 'yearly'; channel: 'all', 'momo', 'agent'
     const adminId = req.user.id;
     let query = '';
     let params = [adminId];
+
+    let channelCondition = " AND payment_method != 'manual'";
+    if (channel === 'momo') {
+        channelCondition = " AND (payment_method IS NULL OR payment_method != 'cash_agent') AND payment_method != 'manual'";
+    } else if (channel === 'agent') {
+        channelCondition = " AND payment_method = 'cash_agent'";
+    }
 
     try {
         if (period === 'weekly') {
@@ -1594,7 +1844,7 @@ router.get('/admin/analytics/transactions', async (req, res) => {
             query = `
                 SELECT DATE_FORMAT(created_at, '%a') as label, SUM(amount) as total_amount, COUNT(*) as count
                 FROM transactions
-                WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual' 
+                WHERE admin_id = ? AND status = 'success'${channelCondition}
                 AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
             `;
             if (req.query.router_id) {
@@ -1610,7 +1860,7 @@ router.get('/admin/analytics/transactions', async (req, res) => {
             query = `
                 SELECT DATE_FORMAT(created_at, '%d %b') as label, SUM(amount) as total_amount, COUNT(*) as count
                 FROM transactions
-                WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual'
+                WHERE admin_id = ? AND status = 'success'${channelCondition}
                 AND created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
             `;
             if (req.query.router_id) {
@@ -1626,7 +1876,7 @@ router.get('/admin/analytics/transactions', async (req, res) => {
             query = `
                 SELECT DATE_FORMAT(created_at, '%b %Y') as label, SUM(amount) as total_amount, COUNT(*) as count
                 FROM transactions
-                WHERE admin_id = ? AND status = 'success' AND payment_method != 'manual'
+                WHERE admin_id = ? AND status = 'success'${channelCondition}
                 AND created_at >= DATE_SUB(CURDATE(), INTERVAL 11 MONTH)
                 GROUP BY DATE_FORMAT(created_at, '%b %Y')
                 ORDER BY MIN(created_at) ASC
@@ -1638,7 +1888,7 @@ router.get('/admin/analytics/transactions', async (req, res) => {
         const [rows] = await db.query(query, params);
         res.json(rows);
     } catch (err) {
-        console.error('Analytics Error:', err); // Check PM2 logs for this
+        console.error('Analytics Error:', err);
         res.status(500).json({ error: 'Failed to fetch analytics: ' + err.message });
     }
 });
@@ -1668,7 +1918,22 @@ router.get('/admin/stats', async (req, res) => {
                 COALESCE(SUM(CASE WHEN MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as monthly_net_revenue,
                 COALESCE(SUM(CASE WHEN YEAR(created_at) = YEAR(CURDATE()) THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as yearly_net_revenue,
                 COALESCE(SUM(amount), 0) as total_revenue,
-                COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as net_revenue
+                COALESCE(SUM(amount - COALESCE(fee, 0)), 0) as net_revenue,
+
+                /* MoMo Only Revenue Breakdown */
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') AND DATE(created_at) = CURDATE() THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as momo_daily_net,
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') AND YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as momo_weekly_net,
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as momo_monthly_net,
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') AND YEAR(created_at) = YEAR(CURDATE()) THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as momo_yearly_net,
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') THEN (amount - COALESCE(fee, 0)) ELSE 0 END), 0) as momo_total_net,
+                COALESCE(SUM(CASE WHEN (payment_method IS NULL OR payment_method != 'cash_agent') THEN amount ELSE 0 END), 0) as momo_gross_total,
+
+                /* Agent Cash Only Revenue Breakdown */
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' AND DATE(created_at) = CURDATE() THEN amount ELSE 0 END), 0) as agent_daily,
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' AND YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) THEN amount ELSE 0 END), 0) as agent_weekly,
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as agent_monthly,
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' AND YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as agent_yearly,
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' THEN amount ELSE 0 END), 0) as agent_total
             FROM transactions
             ${whereClause}
         `;
@@ -1680,9 +1945,10 @@ router.get('/admin/stats', async (req, res) => {
             countParams.push(router_id);
         }
 
-        const [adminInfo] = await db.query('SELECT subscription_expiry, billing_type, COALESCE(opening_balance, 0.00) as opening_balance, last_settled_at FROM admins WHERE id = ?', [adminId]);
+        const [adminInfo] = await db.query('SELECT role, subscription_expiry, billing_type, COALESCE(opening_balance, 0.00) as opening_balance, last_settled_at FROM admins WHERE id = ?', [adminId]);
         const openingBalance = Number(adminInfo[0]?.opening_balance || 0);
-        const lastSettledAt = adminInfo[0]?.last_settled_at || '1970-01-01 00:00:00';
+        const isSuperAdmin = adminInfo[0]?.role === 'super_admin';
+        const lastSettledAt = isSuperAdmin ? '1970-01-01 00:00:00' : (adminInfo[0]?.last_settled_at || '1970-01-01 00:00:00');
 
         const [
             [transStats],
@@ -1696,7 +1962,8 @@ router.get('/admin/stats', async (req, res) => {
             [voucherCount],
             [boughtCount],
             [paymentCount],
-            [smsBalRows]
+            [smsBalRows],
+            [dataUsageRows]
         ] = await Promise.all([
             db.query(statsQuery, params),
             db.query(`
@@ -1746,27 +2013,137 @@ router.get('/admin/stats', async (req, res) => {
                 SELECT count(*) as count FROM transactions 
                 WHERE admin_id = ? AND status = 'success'${routerFilter}
             `, countParams),
-            db.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [adminId])
+            db.query('SELECT SUM(amount) as balance FROM sms_fees WHERE admin_id = ? AND (status="success" OR status IS NULL)', [adminId]),
+            db.query(`
+                SELECT 
+                    COALESCE(SUM(a.acctinputoctets), 0) as upload_bytes,
+                    COALESCE(SUM(a.acctoutputoctets), 0) as download_bytes,
+                    COALESCE(SUM(a.acctinputoctets + a.acctoutputoctets), 0) as total_bytes
+                FROM radacct a
+                LEFT JOIN routers r ON a.nasipaddress = r.ip_address
+                LEFT JOIN vouchers v ON LOWER(v.code) = LOWER(a.username)
+                WHERE r.admin_id = ? OR v.admin_id = ?
+            `, [adminId, adminId])
         ]);
 
-        const grossRevenue = Number(transStats[0].total_revenue);
-        const netRevenue = Number(transStats[0].net_revenue);
-        const onlineNetRevenue = Number(onlineTrans[0].net_revenue);
-        const agentCashRevenue = Number(agentTrans[0].total_agent_sales);
-        const totalWithdrawn = Number(withdrawStats[0].total_withdrawn);
-        const pendingWithdrawn = Number(pendingWdStats[0].pending_withdrawn);
+        let grossRevenue = Number(transStats?.[0]?.total_revenue || 0);
+        let netRevenue = Number(transStats?.[0]?.net_revenue || 0);
+        let onlineNetRevenue = Number(onlineTrans?.[0]?.net_revenue || 0);
+        const agentCashRevenue = Number(agentTrans?.[0]?.total_agent_sales || 0);
+        const totalWithdrawn = Number(withdrawStats?.[0]?.total_withdrawn || 0);
+        const pendingWithdrawn = Number(pendingWdStats?.[0]?.pending_withdrawn || 0);
         
-        // Withdrawable balance is Opening Baseline Balance + Online Net Revenue (amount - fee) minus (Success + Pending Withdrawals since settlement)
-        const withdrawableBalance = openingBalance + onlineNetRevenue - (totalWithdrawn + pendingWithdrawn);
+        let withdrawableBalance = 0;
+        let superCommission = 0;
+        let superSub = 0;
+        let superSms = 0;
 
-        // Net Revenue Breakdown
-        const netDailyRev = Number(transStats[0]?.daily_net_revenue || 0);
-        const netWeeklyRev = Number(transStats[0]?.weekly_net_revenue || 0);
-        const netMonthlyRev = Number(transStats[0]?.monthly_net_revenue || 0);
-        const netYearlyRev = Number(transStats[0]?.yearly_net_revenue || 0);
+        let netDailyRev = Number(transStats?.[0]?.daily_net_revenue || 0);
+        let netWeeklyRev = Number(transStats?.[0]?.weekly_net_revenue || 0);
+        let netMonthlyRev = Number(transStats?.[0]?.monthly_net_revenue || 0);
+        let netYearlyRev = Number(transStats?.[0]?.yearly_net_revenue || 0);
+
+        if (isSuperAdmin) {
+            try {
+                const [superCommRows] = await db.query(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN DATE(t.created_at) = CURDATE() THEN (
+                            CASE WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                                 WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                                 ELSE 0 END
+                        ) ELSE 0 END), 0) as daily_comm,
+                        COALESCE(SUM(CASE WHEN YEARWEEK(t.created_at, 1) = YEARWEEK(CURDATE(), 1) THEN (
+                            CASE WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                                 WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                                 ELSE 0 END
+                        ) ELSE 0 END), 0) as weekly_comm,
+                        COALESCE(SUM(CASE WHEN MONTH(t.created_at) = MONTH(CURDATE()) AND YEAR(t.created_at) = YEAR(CURDATE()) THEN (
+                            CASE WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                                 WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                                 ELSE 0 END
+                        ) ELSE 0 END), 0) as monthly_comm,
+                        COALESCE(SUM(CASE WHEN YEAR(t.created_at) = YEAR(CURDATE()) THEN (
+                            CASE WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                                 WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                                 ELSE 0 END
+                        ) ELSE 0 END), 0) as yearly_comm,
+                        COALESCE(SUM(
+                            CASE WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                                 WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                                 ELSE 0 END
+                        ), 0) as total_comm
+                    FROM transactions t
+                    LEFT JOIN admins a ON t.admin_id = a.id
+                    WHERE (t.status = 'success' OR t.status = 'SUCCESS')
+                      AND (t.transaction_ref NOT LIKE 'SMS-%' AND t.transaction_ref NOT LIKE 'SUB-%' AND t.transaction_ref NOT LIKE 'W-%')
+                      AND t.created_at >= ?
+                `, [lastSettledAt]);
+
+                const [superSubRows] = await db.query(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN amount ELSE 0 END), 0) as daily_sub,
+                        COALESCE(SUM(CASE WHEN YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) THEN amount ELSE 0 END), 0) as weekly_sub,
+                        COALESCE(SUM(CASE WHEN MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as monthly_sub,
+                        COALESCE(SUM(CASE WHEN YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as yearly_sub,
+                        COALESCE(SUM(amount), 0) as total_sub
+                    FROM admin_subscriptions
+                    WHERE (status = 'success' OR status = 'SUCCESS')
+                      AND created_at >= ?
+                `, [lastSettledAt]);
+
+                const [superSmsRows] = await db.query(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN amount ELSE 0 END), 0) as daily_sms,
+                        COALESCE(SUM(CASE WHEN YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) THEN amount ELSE 0 END), 0) as weekly_sms,
+                        COALESCE(SUM(CASE WHEN MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as monthly_sms,
+                        COALESCE(SUM(CASE WHEN YEAR(created_at) = YEAR(CURDATE()) THEN amount ELSE 0 END), 0) as yearly_sms,
+                        COALESCE(SUM(amount), 0) as total_sms
+                    FROM sms_fees
+                    WHERE (status = 'success' OR status = 'SUCCESS')
+                      AND type IN ('deposit', 'recharge')
+                      AND created_at >= ?
+                `, [lastSettledAt]);
+
+                const comm = superCommRows?.[0] || {};
+                const sub = superSubRows?.[0] || {};
+                const sms = superSmsRows?.[0] || {};
+
+                superCommission = Number(comm.total_comm || 0);
+                superSub = Number(sub.total_sub || 0);
+                superSms = Number(sms.total_sms || 0);
+
+                const totalPlatformEarnings = superCommission + superSub + superSms;
+                onlineNetRevenue = totalPlatformEarnings;
+                withdrawableBalance = openingBalance + totalPlatformEarnings - (totalWithdrawn + pendingWithdrawn);
+
+                netDailyRev = Number(comm.daily_comm || 0) + Number(sub.daily_sub || 0) + Number(sms.daily_sms || 0);
+                netWeeklyRev = Number(comm.weekly_comm || 0) + Number(sub.weekly_sub || 0) + Number(sms.weekly_sub || 0);
+                netMonthlyRev = Number(comm.monthly_comm || 0) + Number(sub.monthly_sub || 0) + Number(sms.monthly_sub || 0);
+                netYearlyRev = Number(comm.yearly_comm || 0) + Number(sub.yearly_sub || 0) + Number(sms.yearly_sub || 0);
+                netRevenue = totalPlatformEarnings;
+                grossRevenue = totalPlatformEarnings;
+            } catch (err) {
+                console.error('SuperAdmin platform stats error:', err);
+            }
+        } else {
+            withdrawableBalance = openingBalance + onlineNetRevenue - (totalWithdrawn + pendingWithdrawn);
+        }
 
         // 3. SMS Balance & Active Sessions
-        const smsBalance = Number(smsBalRows[0]?.balance || 0);
+        const smsBalance = Number(smsBalRows?.[0]?.balance || 0);
+
+        const momoDaily = Number(transStats?.[0]?.momo_daily_net || 0);
+        const momoWeekly = Number(transStats?.[0]?.momo_weekly_net || 0);
+        const momoMonthly = Number(transStats?.[0]?.momo_monthly_net || 0);
+        const momoYearly = Number(transStats?.[0]?.momo_yearly_net || 0);
+        const momoTotal = Number(transStats?.[0]?.momo_total_net || 0);
+        const momoGross = Number(transStats?.[0]?.momo_gross_total || 0);
+
+        const agentDaily = Number(transStats?.[0]?.agent_daily || 0);
+        const agentWeekly = Number(transStats?.[0]?.agent_weekly || 0);
+        const agentMonthly = Number(transStats?.[0]?.agent_monthly || 0);
+        const agentYearly = Number(transStats?.[0]?.agent_yearly || 0);
+        const agentTotal = Number(transStats?.[0]?.agent_total || 0);
 
         res.json({
             revenue: {
@@ -1775,10 +2152,34 @@ router.get('/admin/stats', async (req, res) => {
                 this_month: netMonthlyRev,
                 this_year: netYearlyRev,
                 total: netRevenue,
-                gross_total: grossRevenue
+                gross_total: grossRevenue,
+                momo: {
+                    today: momoDaily,
+                    this_week: momoWeekly,
+                    this_month: momoMonthly,
+                    this_year: momoYearly,
+                    total: momoTotal,
+                    gross_total: momoGross
+                },
+                agent: {
+                    today: agentDaily,
+                    this_week: agentWeekly,
+                    this_month: agentMonthly,
+                    this_year: agentYearly,
+                    total: agentTotal,
+                    gross_total: agentTotal
+                },
+                combined: {
+                    today: netDailyRev,
+                    this_week: netWeeklyRev,
+                    this_month: netMonthlyRev,
+                    this_year: netYearlyRev,
+                    total: netRevenue,
+                    gross_total: grossRevenue
+                }
             },
             finance: {
-                ...transStats[0],
+                ...(transStats?.[0] || {}),
                 total_balance: withdrawableBalance > 0 ? withdrawableBalance : 0,
                 gross_revenue: grossRevenue,
                 net_revenue: netRevenue,
@@ -1786,25 +2187,30 @@ router.get('/admin/stats', async (req, res) => {
                 withdrawable_balance: withdrawableBalance > 0 ? withdrawableBalance : 0,
                 online_net_revenue: onlineNetRevenue,
                 agent_cash_total: agentCashRevenue,
-                agent_cash_today: Number(agentTrans[0].daily_agent_sales),
-                agent_sales_count: Number(agentTrans[0].agent_sales_count),
+                agent_cash_today: Number(agentTrans?.[0]?.daily_agent_sales || 0),
+                agent_sales_count: Number(agentTrans?.[0]?.agent_sales_count || 0),
                 total_withdrawn: totalWithdrawn,
                 pending_withdrawals: pendingWithdrawn
             },
-            agent_leaderboard: leaderboard,
+            agent_leaderboard: leaderboard || [],
             sms_balance: smsBalance > 0 ? smsBalance : 0,
+            data_usage: {
+                upload_bytes: Number(dataUsageRows?.[0]?.upload_bytes || 0),
+                download_bytes: Number(dataUsageRows?.[0]?.download_bytes || 0),
+                total_bytes: Number(dataUsageRows?.[0]?.total_bytes || 0)
+            },
             counts: {
-                categories_count: catCount[0].count,
-                packages_count: pkgCount[0].count,
-                vouchers_count: voucherCount[0].count,
-                bought_vouchers_count: boughtCount[0].count,
-                payments_count: paymentCount[0].count,
-                clients: boughtCount[0].count
+                categories_count: catCount?.[0]?.count || 0,
+                packages_count: pkgCount?.[0]?.count || 0,
+                vouchers_count: voucherCount?.[0]?.count || 0,
+                bought_vouchers_count: boughtCount?.[0]?.count || 0,
+                payments_count: paymentCount?.[0]?.count || 0,
+                clients: boughtCount?.[0]?.count || 0
             },
             subscription: {
-                expiry: adminInfo[0]?.subscription_expiry,
-                billing_type: adminInfo[0]?.billing_type || 'commission',
-                commission_rate: adminInfo[0]?.commission_rate !== undefined && adminInfo[0]?.commission_rate !== null ? adminInfo[0]?.commission_rate : 5.00
+                expiry: adminInfo?.[0]?.subscription_expiry,
+                billing_type: adminInfo?.[0]?.billing_type || 'commission',
+                commission_rate: adminInfo?.[0]?.commission_rate !== undefined && adminInfo?.[0]?.commission_rate !== null ? adminInfo?.[0]?.commission_rate : 5.00
             }
         });
     } catch (err) {
@@ -1816,10 +2222,75 @@ router.get('/admin/stats', async (req, res) => {
 router.get('/admin/payments-chart', async (req, res) => {
     try {
         const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+        const { channel } = req.query; // 'all', 'momo', 'agent'
         const adminId = req.user.id;
 
+        if (req.user.role === 'super_admin') {
+            const [commRows] = await db.query(`
+                SELECT 
+                    MONTH(t.created_at) as month_num,
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                            WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                            ELSE 0
+                        END
+                    ), 0) as total_comm
+                FROM transactions t
+                LEFT JOIN admins a ON t.admin_id = a.id
+                WHERE (t.status = 'success' OR t.status = 'SUCCESS')
+                  AND YEAR(t.created_at) = ?
+                  AND (t.transaction_ref NOT LIKE 'SMS-%' AND t.transaction_ref NOT LIKE 'SUB-%' AND t.transaction_ref NOT LIKE 'W-%')
+                GROUP BY MONTH(t.created_at)
+            `, [year]);
+
+            const [subRows] = await db.query(`
+                SELECT 
+                    MONTH(created_at) as month_num,
+                    COALESCE(SUM(amount), 0) as total_sub
+                FROM admin_subscriptions
+                WHERE (status = 'success' OR status = 'SUCCESS')
+                  AND YEAR(created_at) = ?
+                GROUP BY MONTH(created_at)
+            `, [year]);
+
+            const [smsRows] = await db.query(`
+                SELECT 
+                    MONTH(created_at) as month_num,
+                    COALESCE(SUM(amount), 0) as total_sms
+                FROM sms_fees
+                WHERE (status = 'success' OR status = 'SUCCESS')
+                  AND type IN ('deposit', 'recharge')
+                  AND YEAR(created_at) = ?
+                GROUP BY MONTH(created_at)
+            `, [year]);
+
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const chartData = months.map((m, idx) => {
+                const mNum = idx + 1;
+                const comm = Number(commRows.find(r => r.month_num === mNum)?.total_comm || 0);
+                const sub = Number(subRows.find(r => r.month_num === mNum)?.total_sub || 0);
+                const sms = Number(smsRows.find(r => r.month_num === mNum)?.total_sms || 0);
+                const totalVal = comm + sub + sms;
+
+                return {
+                    month: m,
+                    total: totalVal,
+                    momo: totalVal,
+                    agent: 0,
+                    combined: totalVal
+                };
+            });
+
+            return res.json(chartData);
+        }
+
         const [rows] = await db.query(`
-            SELECT MONTH(created_at) as month_num, COALESCE(SUM(amount), 0) as total
+            SELECT 
+                MONTH(created_at) as month_num, 
+                COALESCE(SUM(amount), 0) as total,
+                COALESCE(SUM(CASE WHEN payment_method IS NULL OR payment_method != 'cash_agent' THEN amount ELSE 0 END), 0) as momo_total,
+                COALESCE(SUM(CASE WHEN payment_method = 'cash_agent' THEN amount ELSE 0 END), 0) as agent_total
             FROM transactions
             WHERE admin_id = ? 
               AND (status = 'success' OR status = 'SUCCESS')
@@ -1833,9 +2304,20 @@ router.get('/admin/payments-chart', async (req, res) => {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const chartData = months.map((m, idx) => {
             const match = rows.find(r => r.month_num === (idx + 1));
+            const momoVal = match ? Number(match.momo_total) : 0;
+            const agentVal = match ? Number(match.agent_total) : 0;
+            const totalVal = match ? Number(match.total) : 0;
+
+            let selectedTotal = totalVal;
+            if (channel === 'momo') selectedTotal = momoVal;
+            else if (channel === 'agent') selectedTotal = agentVal;
+
             return {
                 month: m,
-                total: match ? Number(match.total) : 0
+                total: selectedTotal,
+                momo: momoVal,
+                agent: agentVal,
+                combined: totalVal
             };
         });
 
@@ -1849,31 +2331,42 @@ router.get('/admin/payments-chart', async (req, res) => {
 router.get('/admin/active-users-chart', async (req, res) => {
     try {
         const days = parseInt(req.query.days, 10) || 7;
+        const isSuperAdmin = req.user.role === 'super_admin';
 
-        // 1. Live Active Sessions right now for this tenant
-        const [[activeRow]] = await db.query(`
-            SELECT COUNT(DISTINCT a.username) as active_now
-            FROM radacct a
-            LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
-            LEFT JOIN vouchers v ON v.code = a.username
-            LEFT JOIN packages p ON p.id = v.package_id
-            WHERE a.acctstoptime IS NULL
-              AND (v.expires_at IS NULL OR v.expires_at > NOW())
-              AND (r.admin_id = ? OR v.admin_id = ? OR p.admin_id = ?)
-        `, [req.user.id, req.user.id, req.user.id]);
+        // 1. Live Active Sessions right now
+        const [[activeRow]] = isSuperAdmin
+            ? await db.query(`SELECT COUNT(DISTINCT username) as active_now FROM radacct WHERE acctstoptime IS NULL`)
+            : await db.query(`
+                SELECT COUNT(DISTINCT a.username) as active_now
+                FROM radacct a
+                LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
+                LEFT JOIN vouchers v ON v.code = a.username
+                LEFT JOIN packages p ON p.id = v.package_id
+                WHERE a.acctstoptime IS NULL
+                  AND (v.expires_at IS NULL OR v.expires_at > NOW())
+                  AND (r.admin_id = ? OR v.admin_id = ? OR p.admin_id = ?)
+            `, [req.user.id, req.user.id, req.user.id]);
 
-        // 2. Query daily active session counts from radacct strictly for this tenant (using local date string format)
-        const [rows] = await db.query(`
-            SELECT DATE_FORMAT(a.acctstarttime, '%Y-%m-%d') as date_str, COUNT(DISTINCT a.username) as user_count
-            FROM radacct a
-            LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
-            LEFT JOIN vouchers v ON v.code = a.username
-            LEFT JOIN packages p ON p.id = v.package_id
-            WHERE a.acctstarttime >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-              AND (r.admin_id = ? OR v.admin_id = ? OR p.admin_id = ?)
-            GROUP BY DATE_FORMAT(a.acctstarttime, '%Y-%m-%d')
-            ORDER BY DATE_FORMAT(a.acctstarttime, '%Y-%m-%d') ASC
-        `, [days, req.user.id, req.user.id, req.user.id]);
+        // 2. Query daily active session counts from radacct
+        const [rows] = isSuperAdmin
+            ? await db.query(`
+                SELECT DATE_FORMAT(acctstarttime, '%Y-%m-%d') as date_str, COUNT(DISTINCT username) as user_count
+                FROM radacct
+                WHERE acctstarttime >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                GROUP BY DATE_FORMAT(acctstarttime, '%Y-%m-%d')
+                ORDER BY DATE_FORMAT(acctstarttime, '%Y-%m-%d') ASC
+            `, [days])
+            : await db.query(`
+                SELECT DATE_FORMAT(a.acctstarttime, '%Y-%m-%d') as date_str, COUNT(DISTINCT a.username) as user_count
+                FROM radacct a
+                LEFT JOIN routers r ON (a.nasipaddress = r.ip_address)
+                LEFT JOIN vouchers v ON v.code = a.username
+                LEFT JOIN packages p ON p.id = v.package_id
+                WHERE a.acctstarttime >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                  AND (r.admin_id = ? OR v.admin_id = ? OR p.admin_id = ?)
+                GROUP BY DATE_FORMAT(a.acctstarttime, '%Y-%m-%d')
+                ORDER BY DATE_FORMAT(a.acctstarttime, '%Y-%m-%d') ASC
+            `, [days, req.user.id, req.user.id, req.user.id]);
 
         // Generate date array for last N days (local YYYY-MM-DD format to prevent UTC offset shifting)
         const chartData = [];
@@ -1957,7 +2450,7 @@ router.post('/admin/renew-subscription', async (req, res) => {
     if (isNaN(numMonths) || numMonths < 1) return res.status(400).json({ error: 'Invalid duration' });
 
     // Enforce Pricing Server-Side
-    const MONTHLY_FEE = 20000;
+    const MONTHLY_FEE = 25000;
     const amount = numMonths * MONTHLY_FEE;
 
     try {
@@ -2050,18 +2543,54 @@ router.get('/admin/subscription-status/:reference', async (req, res) => {
             console.log(`[SUBSCRIPTION] Confirmed Success: ${req.params.reference}`);
             await db.query('UPDATE admin_subscriptions SET status = "success" WHERE reference = ?', [req.params.reference]);
 
-            // Update Admin Expiry
-            // We need to fetch current expiry first to add time correctly
-            const [adminRows] = await db.query('SELECT subscription_expiry FROM admins WHERE id = ?', [req.user.id]);
-            let currentExpiry = adminRows[0].subscription_expiry ? new Date(adminRows[0].subscription_expiry) : new Date();
+            // Fetch subscription record details
+            const [subRows] = await db.query('SELECT amount, months, phone_number FROM admin_subscriptions WHERE reference = ?', [req.params.reference]);
+            const subAmount = subRows[0]?.amount || (monthsToAdd * 25000);
+            const subMonths = subRows[0]?.months || monthsToAdd;
+
+            // Fetch Admin Details
+            const [adminRows] = await db.query('SELECT username, email, business_name, subscription_expiry FROM admins WHERE id = ?', [req.user.id]);
+            const adminObj = adminRows[0] || {};
+            let currentExpiry = adminObj.subscription_expiry ? new Date(adminObj.subscription_expiry) : new Date();
             const now = new Date();
 
             // If expired, start from NOW. If active, add to current expiry.
             if (currentExpiry < now) currentExpiry = now;
 
-            currentExpiry.setMonth(currentExpiry.getMonth() + monthsToAdd);
+            currentExpiry.setMonth(currentExpiry.getMonth() + subMonths);
 
-            await db.query('UPDATE admins SET subscription_expiry = ? WHERE id = ?', [currentExpiry, req.user.id]);
+            // Reset trial/subscription reminder flags so future expiration reminders trigger for this renewed term
+            await db.query(
+                'UPDATE admins SET subscription_expiry = ?, trial_reminder_5d_sent_at = NULL, trial_reminder_1d_sent_at = NULL, trial_reminder_0d_sent_at = NULL WHERE id = ?',
+                [currentExpiry, req.user.id]
+            );
+
+            // Trigger Email Notifications (Async background)
+            const { sendSubscriptionRenewalEmail, sendSuperAdminSubscriptionNotification } = require('../utils/email');
+
+            // 1. Notify Super Admin (ataho955@gmail.com)
+            sendSuperAdminSubscriptionNotification({
+                tenantUsername: adminObj.username,
+                businessName: adminObj.business_name,
+                amount: subAmount,
+                months: subMonths,
+                ref: req.params.reference,
+                newExpiry: currentExpiry,
+                tenantEmail: adminObj.email
+            }).catch(e => console.error('[EMAIL] SuperAdmin Subscription Alert Error:', e.message));
+
+            // 2. Notify Tenant Confirmation Email
+            if (adminObj.email) {
+                sendSubscriptionRenewalEmail({
+                    toEmail: adminObj.email,
+                    username: adminObj.username,
+                    businessName: adminObj.business_name,
+                    amount: subAmount,
+                    months: subMonths,
+                    ref: req.params.reference,
+                    newExpiry: currentExpiry
+                }).catch(e => console.error('[EMAIL] Tenant Subscription Renewal Email Error:', e.message));
+            }
 
             return res.json({ status: 'success' });
         } else if (gwStatus === 'FAILED') {
@@ -2080,9 +2609,29 @@ router.get('/admin/subscription-status/:reference', async (req, res) => {
 // --- Web Configs (Branding) ---
 router.get('/admin/web-configs', async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT business_name, business_phone, portal_dns, portal_welcome_msg, terms_text, portal_logo FROM admins WHERE id = ?', [req.user.id]);
+        const [columns] = await db.query("SHOW COLUMNS FROM admins LIKE 'portal_theme'");
+        if (columns.length === 0) {
+            await db.query("ALTER TABLE admins ADD COLUMN portal_theme VARCHAR(50) DEFAULT 'glass'").catch(() => {});
+        }
+        const [colorCols] = await db.query("SHOW COLUMNS FROM admins LIKE 'primary_color'");
+        if (colorCols.length === 0) {
+            await db.query("ALTER TABLE admins ADD COLUMN primary_color VARCHAR(50) DEFAULT '#6366f1'").catch(() => {});
+        }
+
+        const [rows] = await db.query('SELECT * FROM admins WHERE id = ?', [req.user.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
-        res.json(rows[0]);
+
+        const user = rows[0];
+        res.json({
+            business_name: user.business_name || '',
+            business_phone: user.business_phone || '',
+            portal_dns: user.portal_dns || '',
+            portal_welcome_msg: user.portal_welcome_msg || '',
+            terms_text: user.terms_text || '',
+            portal_logo: user.portal_logo || '',
+            portal_theme: user.portal_theme || 'glass',
+            primary_color: user.primary_color || '#6366f1'
+        });
     } catch (err) {
         console.error('Web Configs Error:', err);
         res.status(500).json({ error: 'Failed to fetch web configs' });
@@ -2090,11 +2639,20 @@ router.get('/admin/web-configs', async (req, res) => {
 });
 
 router.put('/admin/web-configs', async (req, res) => {
-    const { business_name, business_phone, portal_dns, portal_welcome_msg, terms_text } = req.body;
+    const { business_name, business_phone, portal_dns, portal_welcome_msg, terms_text, portal_theme, primary_color } = req.body;
     try {
+        const [columns] = await db.query("SHOW COLUMNS FROM admins LIKE 'portal_theme'");
+        if (columns.length === 0) {
+            await db.query("ALTER TABLE admins ADD COLUMN portal_theme VARCHAR(50) DEFAULT 'glass'").catch(() => {});
+        }
+        const [colorCols] = await db.query("SHOW COLUMNS FROM admins LIKE 'primary_color'");
+        if (colorCols.length === 0) {
+            await db.query("ALTER TABLE admins ADD COLUMN primary_color VARCHAR(50) DEFAULT '#6366f1'").catch(() => {});
+        }
+
         await db.query(
-            'UPDATE admins SET business_name = ?, business_phone = ?, portal_dns = ?, portal_welcome_msg = ?, terms_text = ? WHERE id = ?',
-            [business_name || null, business_phone || null, portal_dns || null, portal_welcome_msg || null, terms_text || null, req.user.id]
+            'UPDATE admins SET business_name = ?, business_phone = ?, portal_dns = ?, portal_welcome_msg = ?, terms_text = ?, portal_theme = ?, primary_color = ? WHERE id = ?',
+            [business_name || null, business_phone || null, portal_dns || null, portal_welcome_msg || null, terms_text || null, portal_theme || 'glass', primary_color || '#6366f1', req.user.id]
         );
         res.json({ message: 'Web configs updated' });
     } catch (err) {

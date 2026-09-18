@@ -16,10 +16,12 @@ export default function Login() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    const res = await login(form.username, form.password)
+    const cleanUsername = (form.username || '').trim()
+    const res = await login(cleanUsername, form.password)
     setLoading(false)
     if (res.ok) {
-      if (res.admin?.role === 'agent' || res.role === 'agent') {
+      const loggedAdmin = res.admin
+      if (loggedAdmin?.role === 'agent' || res.role === 'agent') {
         navigate('/agent-portal')
       } else {
         navigate('/dashboard')
@@ -52,6 +54,9 @@ export default function Login() {
               className="input pl-9"
               value={form.username}
               onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
               required
             />
           </div>

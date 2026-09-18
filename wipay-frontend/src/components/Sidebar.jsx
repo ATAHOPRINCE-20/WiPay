@@ -53,9 +53,12 @@ const SUPER_NAV = {
 }
 
 export default function Sidebar({ isOpen, setIsOpen }) {
-  const { admin, logout } = useAuth()
+  const { admin, logout, isImpersonating } = useAuth()
   const navigate = useNavigate()
   const [counts, setCounts] = useState({})
+
+  const isSubscriptionTenant = admin?.role === 'admin' && admin?.billing_type === 'subscription'
+  const isExpired = isSubscriptionTenant && admin?.subscription_expiry && new Date(admin.subscription_expiry) < new Date() && !isImpersonating
 
   useEffect(() => {
     api.get('/admin/stats')
@@ -140,9 +143,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
         {/* Logo */}
         <div className="flex items-center justify-between px-5 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Wifi className="w-4 h-4 text-white" />
-            </div>
+            <img src="/img/favicon.png" alt="UgPay" className="w-8 h-8 object-contain flex-shrink-0" />
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-gray-900 leading-none truncate">{admin?.business_name || 'UGPAY'}</p>
               <p className="text-[10px] text-gray-400 mt-0.5">WiFi Billing</p>
@@ -158,14 +159,23 @@ export default function Sidebar({ isOpen, setIsOpen }) {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+          {isExpired && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center shadow-xs">
+              <p className="text-[11px] font-bold text-red-600 uppercase tracking-wide">Subscription Expired</p>
+              <p className="text-[10px] text-red-500 mt-0.5 leading-tight">Voucher generation, captive portal & agent sales suspended.</p>
+            </div>
+          )}
+
           {NAV.map((section) => (
             <div key={section.label}>
               <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                 {section.label}
               </p>
               <ul className="space-y-0.5">
-                {section.items.map(({ icon: Icon, label, to, count, hasAdd, addLabel, addPath, isExternal }) => (
-                  <li key={label} className="relative group/item flex items-center">
+                {section.items.map(({ icon: Icon, label, to, count, hasAdd, addLabel, addPath, isExternal }) => {
+                  const isLocked = false
+                  return (
+                  <li key={label} className={`relative group/item flex items-center ${isLocked ? 'opacity-40 pointer-events-none' : ''}`}>
                     {isExternal ? (
                       <a
                         href={
@@ -224,7 +234,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
                       </>
                     )}
                   </li>
-                ))}
+                )})}
               </ul>
             </div>
           ))}

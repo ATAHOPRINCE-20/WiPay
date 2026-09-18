@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import { Loader2, RefreshCw, Calendar, CreditCard, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 
 export default function Subscription() {
+  const { refreshProfile } = useAuth()
   const [stats, setStats] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,6 +44,7 @@ export default function Subscription() {
         if (data.status === 'success') {
           setPollStatus('success')
           setPollRef('')
+          await refreshProfile()
           load() // Refresh data
         } else if (data.status === 'failed') {
           setPollStatus('failed')
@@ -56,7 +59,7 @@ export default function Subscription() {
       active = false
       clearInterval(interval)
     }
-  }, [pollRef])
+  }, [pollRef, refreshProfile])
 
   const renew = async (e) => {
     e.preventDefault()
@@ -135,7 +138,7 @@ export default function Subscription() {
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">Monthly Rate</p>
-                <p className="text-sm font-semibold mt-0.5">UGX 20,000</p>
+                <p className="text-sm font-semibold mt-0.5">UGX 25,000</p>
               </div>
             </div>
           </div>
@@ -157,7 +160,7 @@ export default function Subscription() {
             <div className="py-6 text-center space-y-3">
               <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto" />
               <p className="text-sm font-semibold text-gray-700">Subscription Renewed!</p>
-              <button className="btn-secondary text-xs" onClick={() => setPollStatus('')}>Done</button>
+              <button className="btn-secondary text-xs" onClick={async () => { await refreshProfile(); setPollStatus(''); }}>Done</button>
             </div>
           ) : (
             <form onSubmit={renew} className="space-y-4">
@@ -178,10 +181,10 @@ export default function Subscription() {
                   value={form.months} 
                   onChange={e => setForm(p => ({ ...p, months: e.target.value }))}
                 >
-                  <option value="1">1 Month (UGX 20,000)</option>
-                  <option value="3">3 Months (UGX 60,000)</option>
-                  <option value="6">6 Months (UGX 120,000)</option>
-                  <option value="12">12 Months (UGX 240,000)</option>
+                  <option value="1">1 Month (UGX 25,000)</option>
+                  <option value="3">3 Months (UGX 75,000)</option>
+                  <option value="6">6 Months (UGX 150,000)</option>
+                  <option value="12">12 Months (UGX 300,000)</option>
                 </select>
               </div>
               <button type="submit" disabled={renewing} className="btn-primary w-full justify-center text-sm py-2">

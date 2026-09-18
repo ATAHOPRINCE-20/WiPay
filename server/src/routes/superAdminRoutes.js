@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const db = require('../config/db');
-const { authenticateToken, verifySuperAdmin } = require('../middleware/auth');
+const { authenticateToken, verifySuperAdmin, JWT_SECRET } = require('../middleware/auth');
+const { sendWelcomeEmail } = require('../utils/email');
 
 // Middleware for all super admin routes
 router.use(authenticateToken);
@@ -142,9 +144,13 @@ router.post('/tenants', async (req, res) => {
         const portalSlug = 'wp_' + crypto.randomBytes(6).toString('hex');
 
         await db.query(
-            'INSERT INTO admins (username, password_hash, role, billing_type, commission_rate, email, business_name, business_phone, portal_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO admins (username, password_hash, role, billing_type, commission_rate, email, business_name, business_phone, portal_slug, subscription_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY))',
             [username, hash, 'admin', bType, cRate, userEmail, bName, bPhone, portalSlug]
         );
+
+        if (userEmail) {
+            sendWelcomeEmail(userEmail, username, bName).catch(err => console.error('Tenant Welcome Email Error:', err));
+        }
 
         res.status(201).json({ message: 'Tenant created successfully' });
     } catch (err) {
@@ -179,7 +185,26 @@ router.patch('/tenants/:id/subscription', async (req, res) => {
     if (!expiry_date) return res.status(400).json({ error: 'Date required' });
 
     try {
-        await db.query('UPDATE admins SET subscription_expiry = ? WHERE id = ?', [expiry_date, tenantId]);
+        await db.query(
+            'UPDATE admins SET subscription_expiry = ?, trial_reminder_5d_sent_at = NULL, trial_reminder_1d_sent_at = NULL, trial_reminder_0d_sent_at = NULL WHERE id = ?',
+            [expiry_date, tenantId]
+        );
+
+        // Send tenant confirmation email if email exists
+        const [rows] = await db.query('SELECT username, email, business_name FROM admins WHERE id = ?', [tenantId]);
+        if (rows.length > 0 && rows[0].email) {
+            const { sendSubscriptionRenewalEmail } = require('../utils/email');
+            sendSubscriptionRenewalEmail({
+                toEmail: rows[0].email,
+                username: rows[0].username,
+                businessName: rows[0].business_name,
+                amount: 0,
+                months: 1,
+                ref: 'SUPER-ADMIN-UPDATE',
+                newExpiry: expiry_date
+            }).catch(e => console.error('[EMAIL] Manual Extension Email Error:', e.message));
+        }
+
         res.json({ message: 'Subscription updated successfully' });
     } catch (err) {
         console.error(err);
@@ -233,13 +258,21 @@ router.get('/stats', async (req, res) => {
         const [[{ activeUsersCount }]] = await db.query('SELECT COUNT(DISTINCT username) as activeUsersCount FROM radacct WHERE acctstoptime IS NULL');
         const [[{ totalVouchers }]] = await db.query('SELECT COUNT(*) as totalVouchers FROM vouchers');
         
-        // 1. Commission Fees collected from voucher sales
+        // 1. Commission Fees collected from voucher sales (with fallback for past transactions)
         const [[{ totalRevenue, totalCommissionFees }]] = await db.query(`
-            SELECT COALESCE(SUM(amount), 0) as totalRevenue, 
-                   COALESCE(SUM(fee), 0) as totalCommissionFees 
-            FROM transactions 
-            WHERE (status = "success" OR status = "SUCCESS")
-              AND (transaction_ref NOT LIKE 'SMS-%' AND transaction_ref NOT LIKE 'SUB-%' AND transaction_ref NOT LIKE 'W-%')
+            SELECT 
+                COALESCE(SUM(t.amount), 0) as totalRevenue, 
+                COALESCE(SUM(
+                    CASE 
+                        WHEN t.fee IS NOT NULL AND t.fee > 0 THEN t.fee
+                        WHEN COALESCE(a.billing_type, 'commission') = 'commission' THEN (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+                        ELSE 0
+                    END
+                ), 0) as totalCommissionFees 
+            FROM transactions t
+            LEFT JOIN admins a ON t.admin_id = a.id
+            WHERE (t.status = "success" OR t.status = "SUCCESS")
+              AND (t.transaction_ref NOT LIKE 'SMS-%' AND t.transaction_ref NOT LIKE 'SUB-%' AND t.transaction_ref NOT LIKE 'W-%')
         `);
 
         // 2. Subscription Fees collected from tenants
@@ -258,9 +291,13 @@ router.get('/stats', async (req, res) => {
         `).catch(() => [[{ totalSmsFees: 0 }]]);
 
         const [[{ totalWithdrawn }]] = await db.query('SELECT COALESCE(SUM(amount), 0) as totalWithdrawn FROM withdrawals WHERE status != "failed"');
+        const [[{ superWithdrawn }]] = await db.query('SELECT COALESCE(SUM(amount), 0) as superWithdrawn FROM withdrawals WHERE admin_id = ? AND status != "failed"', [req.user.id]);
+        const [[adminRow]] = await db.query('SELECT COALESCE(opening_balance, 0.00) as opening_balance FROM admins WHERE id = ?', [req.user.id]);
+        const superOpeningBalance = Number(adminRow?.opening_balance || 0);
 
-        // Total Platform Earnings = Commission Fees + Subscription Payments + SMS Topups
-        const totalEarnings = Number(totalCommissionFees || 0) + Number(totalSubscriptionFees || 0) + Number(totalSmsFees || 0);
+        // Total Platform Earnings = Opening Balance + Commission Fees + Subscription Payments + SMS Topups
+        const totalEarnings = superOpeningBalance + Number(totalCommissionFees || 0) + Number(totalSubscriptionFees || 0) + Number(totalSmsFees || 0);
+        const withdrawableBalance = Math.max(0, totalEarnings - Number(superWithdrawn || 0));
 
         res.json({
             tenantCount: tenantCount || 0,
@@ -272,7 +309,9 @@ router.get('/stats', async (req, res) => {
             commissionFees: totalCommissionFees || 0,
             subscriptionFees: totalSubscriptionFees || 0,
             smsFees: totalSmsFees || 0,
-            totalWithdrawn: totalWithdrawn || 0
+            totalWithdrawn: totalWithdrawn || 0,
+            superWithdrawn: superWithdrawn || 0,
+            withdrawableBalance: withdrawableBalance
         });
     } catch (err) {
         console.error('Fetch Stats Error:', err);
@@ -307,6 +346,41 @@ router.put('/tenants/:id', async (req, res) => {
             return res.status(400).json({ error: 'Username or email already exists' });
         }
         res.status(500).json({ error: 'Failed to update tenant' });
+    }
+});
+
+// Impersonate Tenant
+router.post('/tenants/:id/impersonate', async (req, res) => {
+    const tenantId = req.params.id;
+    try {
+        const [rows] = await db.query('SELECT id, username, role, portal_slug, portal_dns, business_name FROM admins WHERE id = ?', [tenantId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Tenant account not found' });
+
+        const tenant = rows[0];
+        const tokenPayload = {
+            id: tenant.id,
+            username: tenant.username,
+            role: 'admin',
+            impersonatedBy: req.user.id
+        };
+
+        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
+        res.cookie('token', token, { httpOnly: true, secure: false, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
+
+        res.json({
+            token,
+            admin: {
+                id: tenant.id,
+                username: tenant.username,
+                role: 'admin',
+                portal_slug: tenant.portal_slug,
+                portal_dns: tenant.portal_dns,
+                business_name: tenant.business_name
+            }
+        });
+    } catch (err) {
+        console.error('Impersonation Error:', err);
+        res.status(500).json({ error: 'Failed to impersonate tenant' });
     }
 });
 
@@ -349,6 +423,75 @@ router.get('/resources', async (req, res) => {
         res.json(rows);
     } catch (e) {
         res.json([]);
+    }
+});
+
+// Database Health & Connection Pool Metrics Endpoint for Super Admin Dashboard
+router.get('/db-health', async (req, res) => {
+    try {
+        const [[connectedRow]] = await db.query("SHOW STATUS LIKE 'Threads_connected'").catch(() => [[{ Value: 0 }]]);
+        const [[runningRow]] = await db.query("SHOW STATUS LIKE 'Threads_running'").catch(() => [[{ Value: 0 }]]);
+        const [[maxUsedRow]] = await db.query("SHOW STATUS LIKE 'Max_used_connections'").catch(() => [[{ Value: 0 }]]);
+        const [[maxConnRow]] = await db.query("SHOW VARIABLES LIKE 'max_connections'").catch(() => [[{ Value: 300 }]]);
+        const [processList] = await db.query("SHOW PROCESSLIST").catch(() => [[]]);
+
+        const threadsConnected = Number(connectedRow?.Value || 0);
+        const threadsRunning = Number(runningRow?.Value || 0);
+        const maxUsedConnections = Number(maxUsedRow?.Value || 0);
+        const maxConnections = Number(maxConnRow?.Value || 300);
+
+        const sleepingCount = processList.filter(p => p.Command === 'Sleep').length;
+
+        let status = 'healthy';
+        if (threadsConnected >= maxConnections * 0.85) {
+            status = 'critical';
+        } else if (threadsConnected >= maxConnections * 0.65) {
+            status = 'warning';
+        }
+
+        res.json({
+            status,
+            threads_connected: threadsConnected,
+            threads_running: threadsRunning,
+            sleeping_connections: sleepingCount,
+            max_used_connections: maxUsedConnections,
+            max_connections: maxConnections,
+            pool_limit: 30,
+            processes: processList.map(p => ({
+                id: p.Id,
+                user: p.User,
+                host: p.Host,
+                db: p.db,
+                command: p.Command,
+                time: p.Time,
+                state: p.State,
+                info: p.Info
+            }))
+        });
+    } catch (err) {
+        console.error('Fetch DB Health Error:', err);
+        res.status(500).json({ error: 'Failed to fetch DB health metrics' });
+    }
+});
+
+// One-click Purge Sleeping Connections
+router.post('/db-health/purge-sleeping', async (req, res) => {
+    try {
+        const [processes] = await db.query("SHOW PROCESSLIST");
+        const sleepingIds = processes.filter(p => p.Command === 'Sleep' && p.Time > 30).map(p => p.Id);
+
+        let killed = 0;
+        for (const id of sleepingIds) {
+            try {
+                await db.query(`KILL ${id}`);
+                killed++;
+            } catch (_) {}
+        }
+
+        res.json({ message: `Purged ${killed} sleeping database connection(s).`, killed });
+    } catch (err) {
+        console.error('Purge Sleeping Connections Error:', err);
+        res.status(500).json({ error: 'Failed to purge sleeping connections' });
     }
 });
 

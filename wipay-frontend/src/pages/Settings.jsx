@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import { Loader2, Building2, Lock, CreditCard } from 'lucide-react'
 
-const MONTHLY_FEE = 20000
+const MONTHLY_FEE = 25000
 
 export default function Settings() {
   const { admin, refreshProfile } = useAuth()

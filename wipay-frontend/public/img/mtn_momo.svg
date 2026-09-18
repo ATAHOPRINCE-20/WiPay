@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" width="280" height="80" fill="none">
+  <!-- Navy Blue MoMo Icon Box -->
+  <rect x="5" y="5" width="70" height="70" rx="16" fill="#004F71" stroke="#FFCC00" stroke-width="1.5" stroke-opacity="0.3"/>
+  <path d="M 22 56 C 22 56 38 20 48 15 C 53 12 60 25 60 25 C 60 25 38 34 30 56 Z" fill="#FFCC00"/>
+  <circle cx="40" cy="35" r="8" fill="#004F71"/>
+  <rect x="5" y="62" width="70" height="13" rx="3" fill="#FFCC00"/>
+  
+  <!-- MoMo Text -->
+  <text x="92" y="48" font-family="'Inter', system-ui, -apple-system, sans-serif" font-weight="900" font-size="44" fill="#FFCC00" letter-spacing="-1">MoMo</text>
+  <!-- from MTN Text -->
+  <text x="93" y="70" font-family="'Inter', system-ui, -apple-system, sans-serif" font-weight="700" font-size="20" fill="#FFCC00" letter-spacing="0">from MTN</text>
+</svg>

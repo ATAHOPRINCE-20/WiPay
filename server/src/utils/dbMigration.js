@@ -411,8 +411,7 @@ async function runPendingMigrations() {
                 secret VARCHAR(60) NOT NULL DEFAULT 'testing123',
                 server VARCHAR(64),
                 community VARCHAR(64),
-                description VARCHAR(200),
-                KEY nasname (nasname)
+                description VARCHAR(200)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
 
@@ -420,20 +419,13 @@ async function runPendingMigrations() {
             INSERT INTO nas (nasname, shortname, type, secret, description)
             SELECT ip_address, name, 'mikrotik', radius_secret, CONCAT('Router ID ', id)
             FROM routers
+            WHERE ip_address IS NOT NULL AND ip_address != ''
             ON DUPLICATE KEY UPDATE secret = VALUES(secret), shortname = VALUES(shortname);
-        `);
+        `).catch(() => {});
 
-        await db.query(`
-            INSERT IGNORE INTO radcheck (username, attribute, op, value)
-            SELECT code, 'Cleartext-Password', ':=', code FROM vouchers WHERE status IS NULL OR status != 'expired'
-        `);
-        await db.query(`
-            INSERT IGNORE INTO radcheck (username, attribute, op, value)
-            SELECT code, 'User-Password', ':=', code FROM vouchers WHERE status IS NULL OR status != 'expired'
-        `);
-        console.log(`[MIGRATION] Fast-synced NAS routers and active vouchers to RADIUS.`);
+        console.log(`[MIGRATION] Fast-synced NAS routers.`);
     } catch (err) {
-        console.error('[MIGRATION ERROR] NAS & Voucher RADIUS Sync:', err.message);
+        console.error('[MIGRATION ERROR] NAS RADIUS Sync:', err.message);
     }
     try {
         // Migration 19: Add RouterOS API credentials to routers table and timestamp tracking to vouchers table
@@ -470,11 +462,29 @@ async function runPendingMigrations() {
     }
 
     try {
-        // Migration 20: Ensure all package and voucher columns exist to prevent 500 SQL errors
+        // Migration 20: Ensure all package, voucher, and agents tables and columns exist
         const columnExists = async (table, column) => {
-            const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
-            return rows.length > 0;
+            try {
+                const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
+                return rows.length > 0;
+            } catch (e) {
+                return false;
+            }
         };
+
+        // Agents Table Creation
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS agents (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                admin_id INT NOT NULL,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                email VARCHAR(255) DEFAULT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                phone_number VARCHAR(20) DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
 
         // Routers Table Column Checks
         if (!(await columnExists('routers', 'wg_ip'))) {
@@ -599,6 +609,7 @@ async function runPendingMigrations() {
         const indexQueries = [
             'CREATE INDEX idx_radacct_user_stop ON radacct (username, acctstoptime)',
             'CREATE INDEX idx_radacct_callingstationid ON radacct (callingstationid)',
+            'CREATE INDEX idx_radacct_stop_update ON radacct (acctstoptime, acctupdatetime)',
             'CREATE INDEX idx_vouchers_code ON vouchers (code)',
             'CREATE INDEX idx_vouchers_admin_pkg ON vouchers (admin_id, package_id)',
             'CREATE INDEX idx_vouchers_agent_used ON vouchers (agent_id, is_used)',
@@ -655,7 +666,10 @@ async function runPendingMigrations() {
             console.log("Migration: Adding last_settled_at to admins...");
             await db.query("ALTER TABLE admins ADD COLUMN last_settled_at DATETIME DEFAULT NULL");
         }
-        console.log('Migration Success: Admins opening_balance and last_settled_at checked/created.');
+
+        // Set initial opening_balance to 10000.00 for super_admin if 0
+        await db.query("UPDATE admins SET opening_balance = 10000.00 WHERE role = 'super_admin' AND (opening_balance IS NULL OR opening_balance = 0.00)");
+        console.log('Migration Success: Admins opening_balance set to 10,000 UGX for Super Admin.');
     } catch (err) {
         console.error('Migration Error (Admins opening_balance & last_settled_at):', err);
     }
@@ -710,55 +724,13 @@ async function runPendingMigrations() {
             )
         `).catch(() => {});
 
-        // 2. Restore Cleartext-Password & User-Password in radcheck for all active non-expired vouchers (Exact Case)
-        await db.query(`
-            INSERT INTO radcheck (username, attribute, op, value)
-            SELECT v.code, 'Cleartext-Password', ':=', v.code
-            FROM vouchers v
-            WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
-        `).catch(() => {});
-
-        await db.query(`
-            INSERT INTO radcheck (username, attribute, op, value)
-            SELECT v.code, 'User-Password', ':=', v.code
-            FROM vouchers v
-            WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
-        `).catch(() => {});
-
-        // Restore Cleartext-Password & User-Password in radcheck (Lowercase)
+        // 2. Restore Cleartext-Password in radcheck (Strictly Lowercase to match FreeRADIUS tolower policy)
         await db.query(`
             INSERT INTO radcheck (username, attribute, op, value)
             SELECT LOWER(v.code), 'Cleartext-Password', ':=', LOWER(v.code)
             FROM vouchers v
             WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
-        `).catch(() => {});
-
-        await db.query(`
-            INSERT INTO radcheck (username, attribute, op, value)
-            SELECT LOWER(v.code), 'User-Password', ':=', LOWER(v.code)
-            FROM vouchers v
-            WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
-        `).catch(() => {});
-
-        // Restore Cleartext-Password & User-Password in radcheck (Uppercase)
-        await db.query(`
-            INSERT INTO radcheck (username, attribute, op, value)
-            SELECT UPPER(v.code), 'Cleartext-Password', ':=', UPPER(v.code)
-            FROM vouchers v
-            WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
-        `).catch(() => {});
-
-        await db.query(`
-            INSERT INTO radcheck (username, attribute, op, value)
-            SELECT UPPER(v.code), 'User-Password', ':=', UPPER(v.code)
-            FROM vouchers v
-            WHERE v.code IS NOT NULL AND v.code != '' AND (v.status IS NULL OR v.status != 'expired')
-            ON DUPLICATE KEY UPDATE value = VALUES(value)
+            ON DUPLICATE KEY UPDATE value = LOWER(VALUES(value))
         `).catch(() => {});
 
         // 3. Backfill Idle-Timeout (300 seconds default) in radreply for all existing vouchers
@@ -796,148 +768,11 @@ async function runPendingMigrations() {
             ON DUPLICATE KEY UPDATE value = VALUES(value)
         `).catch(() => {});
 
-        // 3. Drop existing triggers if present to ensure clean update
+        // 3. Drop legacy radacct triggers to prevent transaction lock-ups during accounting updates
         await db.query("DROP TRIGGER IF EXISTS trg_radacct_session_timeout_update").catch(() => {});
         await db.query("DROP TRIGGER IF EXISTS trg_radacct_session_timeout_insert").catch(() => {});
-        await db.query("DROP TRIGGER IF EXISTS trg_radacct_session_timeout_update").catch(() => {});
 
-        // Reset falsely expired vouchers back to active if remaining time exists
-        await db.query(`
-            UPDATE vouchers v
-            JOIN packages p ON p.id = v.package_id
-            LEFT JOIN (
-                SELECT username, SUM(acctsessiontime) as total_used 
-                FROM radacct 
-                GROUP BY username
-            ) a ON (LOWER(a.username) = LOWER(v.code))
-            SET v.status = 'active'
-            WHERE v.status = 'expired' AND COALESCE(a.total_used, 0) < (
-                CASE 
-                    WHEN p.validity_unit = 'minutes' AND p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                    WHEN p.validity_hours > 0 THEN (p.validity_hours * 3600)
-                    WHEN p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                    ELSE 86400
-                END
-            )
-        `).catch(() => {});
-
-        // Create Trigger AFTER INSERT ON radacct
-        await db.query(`
-            CREATE TRIGGER trg_radacct_session_timeout_insert
-            AFTER INSERT ON radacct
-            FOR EACH ROW
-            BEGIN
-                DECLARE total_used INT DEFAULT 0;
-                DECLARE total_allowed INT DEFAULT 0;
-                DECLARE expiry_remaining INT DEFAULT 99999999;
-                DECLARE remaining_time INT DEFAULT 0;
-                
-                IF NEW.username IS NOT NULL AND NEW.username != '' THEN
-                    SELECT 
-                        COALESCE(
-                            CAST(
-                                CASE 
-                                    WHEN p.validity_unit = 'minutes' AND p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                                    WHEN p.validity_hours > 0 THEN (p.validity_hours * 3600)
-                                    WHEN p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                                    ELSE 86400
-                                END AS UNSIGNED
-                            ), 0
-                        ),
-                        CASE
-                            WHEN v.expires_at IS NOT NULL THEN TIMESTAMPDIFF(SECOND, NOW(), v.expires_at)
-                            ELSE 99999999
-                        END
-                    INTO total_allowed, expiry_remaining
-                    FROM vouchers v
-                    JOIN packages p ON p.id = v.package_id
-                    WHERE LOWER(v.code) = LOWER(NEW.username)
-                    LIMIT 1;
-                    
-                    IF total_allowed > 0 THEN
-                        SELECT COALESCE(SUM(acctsessiontime), 0) INTO total_used 
-                        FROM radacct 
-                        WHERE LOWER(username) = LOWER(NEW.username);
-
-                        SET remaining_time = LEAST(total_allowed - total_used, expiry_remaining);
-                        
-                        IF remaining_time <= 0 THEN
-                            UPDATE vouchers SET status = 'expired', is_used = 1 WHERE LOWER(code) = LOWER(NEW.username);
-                            DELETE FROM radcheck WHERE LOWER(username) = LOWER(NEW.username) AND attribute = 'Cleartext-Password';
-                            DELETE FROM radreply WHERE LOWER(username) = LOWER(NEW.username) AND attribute = 'Session-Timeout';
-                        ELSEIF remaining_time > 0 THEN
-                            INSERT INTO radreply (username, attribute, op, value)
-                            VALUES (NEW.username, 'Session-Timeout', ':=', CAST(remaining_time AS CHAR))
-                            ON DUPLICATE KEY UPDATE value = CAST(remaining_time AS CHAR);
-
-                            INSERT INTO radcheck (username, attribute, op, value)
-                            VALUES (NEW.username, 'Cleartext-Password', ':=', NEW.username)
-                            ON DUPLICATE KEY UPDATE value = VALUES(value);
-                        END IF;
-                    END IF;
-                END IF;
-            END;
-        `).catch(err => console.warn('Trigger creation warning (insert):', err.message));
-
-        // Create Trigger AFTER UPDATE ON radacct
-        await db.query(`
-            CREATE TRIGGER trg_radacct_session_timeout_update
-            AFTER UPDATE ON radacct
-            FOR EACH ROW
-            BEGIN
-                DECLARE total_used INT DEFAULT 0;
-                DECLARE total_allowed INT DEFAULT 0;
-                DECLARE expiry_remaining INT DEFAULT 99999999;
-                DECLARE remaining_time INT DEFAULT 0;
-                
-                IF NEW.username IS NOT NULL AND NEW.username != '' THEN
-                    SELECT 
-                        COALESCE(
-                            CAST(
-                                CASE 
-                                    WHEN p.validity_unit = 'minutes' AND p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                                    WHEN p.validity_hours > 0 THEN (p.validity_hours * 3600)
-                                    WHEN p.validity_minutes > 0 THEN (p.validity_minutes * 60)
-                                    ELSE 86400
-                                END AS UNSIGNED
-                            ), 0
-                        ),
-                        CASE
-                            WHEN v.expires_at IS NOT NULL THEN TIMESTAMPDIFF(SECOND, NOW(), v.expires_at)
-                            ELSE 99999999
-                        END
-                    INTO total_allowed, expiry_remaining
-                    FROM vouchers v
-                    JOIN packages p ON p.id = v.package_id
-                    WHERE LOWER(v.code) = LOWER(NEW.username)
-                    LIMIT 1;
-                    
-                    IF total_allowed > 0 THEN
-                        SELECT COALESCE(SUM(acctsessiontime), 0) INTO total_used 
-                        FROM radacct 
-                        WHERE LOWER(username) = LOWER(NEW.username);
-
-                        SET remaining_time = LEAST(total_allowed - total_used, expiry_remaining);
-                        
-                        IF remaining_time <= 0 THEN
-                            UPDATE vouchers SET status = 'expired', is_used = 1 WHERE LOWER(code) = LOWER(NEW.username);
-                            DELETE FROM radcheck WHERE LOWER(username) = LOWER(NEW.username) AND attribute = 'Cleartext-Password';
-                            DELETE FROM radreply WHERE LOWER(username) = LOWER(NEW.username) AND attribute = 'Session-Timeout';
-                        ELSEIF remaining_time > 0 THEN
-                            INSERT INTO radreply (username, attribute, op, value)
-                            VALUES (NEW.username, 'Session-Timeout', ':=', CAST(remaining_time AS CHAR))
-                            ON DUPLICATE KEY UPDATE value = CAST(remaining_time AS CHAR);
-
-                            INSERT INTO radcheck (username, attribute, op, value)
-                            VALUES (NEW.username, 'Cleartext-Password', ':=', NEW.username)
-                            ON DUPLICATE KEY UPDATE value = VALUES(value);
-                        END IF;
-                    END IF;
-                END IF;
-            END;
-        `).catch(err => console.warn('Trigger creation warning (update):', err.message));
-
-        console.log('Migration Success: radacct instant session timeout insert/update triggers & passwords restored.');
+        console.log('Migration Success: Legacy radacct triggers removed to prevent transaction lock-ups.');
     } catch (err) {
         console.error('Migration Error (radacct Triggers):', err);
     }
@@ -1008,17 +843,35 @@ async function runPendingMigrations() {
         await db.query("DELETE FROM radcheck WHERE attribute = 'User-Password'").catch(() => {});
         await db.query("UPDATE radcheck SET value = username WHERE attribute = 'Cleartext-Password' AND value != username").catch(() => {});
 
-        // Re-sync all active vouchers cleanly to FreeRADIUS radcheck and radreply
-        const { syncVoucherToRadius } = require('./radius');
-        const [activeVouchers] = await db.query(`
-            SELECT code, package_id FROM vouchers 
-            WHERE (status IS NULL OR status != 'expired') AND package_id IS NOT NULL
-        `);
-        console.log(`Migration 26: Re-syncing ${activeVouchers.length} active vouchers into RADIUS radcheck/radreply...`);
-        for (const v of activeVouchers) {
-            await syncVoucherToRadius(v.code, v.package_id).catch(() => {});
-        }
-        console.log('Migration 26 Success: All cross-tenant voucher collisions resolved and RADIUS re-synced.');
+        // Fast bulk sync all active vouchers to FreeRADIUS radcheck and radreply in 1 bulk query
+        console.log(`Migration 26: Fast bulk syncing active vouchers into RADIUS...`);
+        await db.query(`
+            INSERT INTO radcheck (username, attribute, op, value)
+            SELECT LOWER(code), 'Cleartext-Password', ':=', LOWER(code) 
+            FROM vouchers 
+            WHERE (status IS NULL OR status != 'expired') AND code IS NOT NULL AND code != ''
+            ON DUPLICATE KEY UPDATE value = VALUES(value)
+        `).catch(() => {});
+
+        await db.query(`
+            INSERT INTO radreply (username, attribute, op, value)
+            SELECT v.code, 'Session-Timeout', ':=', CAST(COALESCE(p.validity_hours * 3600, 86400) AS CHAR)
+            FROM vouchers v 
+            JOIN packages p ON p.id = v.package_id 
+            WHERE v.code IS NOT NULL AND (v.status IS NULL OR v.status != 'expired')
+            ON DUPLICATE KEY UPDATE value = VALUES(value)
+        `).catch(() => {});
+
+        await db.query(`
+            INSERT INTO radreply (username, attribute, op, value)
+            SELECT v.code, 'Idle-Timeout', ':=', CAST(COALESCE(p.idle_timeout_seconds, 300) AS CHAR)
+            FROM vouchers v 
+            JOIN packages p ON p.id = v.package_id 
+            WHERE v.code IS NOT NULL AND (v.status IS NULL OR v.status != 'expired')
+            ON DUPLICATE KEY UPDATE value = VALUES(value)
+        `).catch(() => {});
+
+        console.log('Migration 26 Success: All cross-tenant voucher collisions resolved and RADIUS fast bulk-synced.');
     } catch (err) {
         console.error('Migration Error (Voucher Collision Resolution):', err);
     }
@@ -1041,6 +894,103 @@ async function runPendingMigrations() {
         console.log('Migration Success: mac_address and ip_address columns checked/created in transactions.');
     } catch (err) {
         console.error('Migration Error (mac_address/ip_address in transactions):', err);
+    }
+
+    try {
+        // Migration 28: Backfill fee on past successful transactions based on tenant commission_rate
+        console.log("Migration 28: Backfilling missing commission fee on past transactions...");
+        await db.query(`
+            UPDATE transactions t
+            JOIN admins a ON t.admin_id = a.id
+            SET t.fee = (t.amount * COALESCE(a.commission_rate, 5.00) / 100)
+            WHERE (t.status = 'success' OR t.status = 'SUCCESS')
+              AND (t.fee IS NULL OR t.fee = 0)
+              AND (t.transaction_ref NOT LIKE 'SMS-%' AND t.transaction_ref NOT LIKE 'SUB-%' AND t.transaction_ref NOT LIKE 'W-%')
+              AND COALESCE(a.billing_type, 'commission') = 'commission'
+        `);
+        console.log('Migration 28 Success: Backfilled commission fees on past transactions.');
+    } catch (err) {
+        console.error('Migration Error (Backfill transaction commission fees):', err);
+    }
+
+    try {
+        // Migration 29: Add portal_theme and primary_color to admins table
+        const columnExists = async (table, column) => {
+            const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
+            return rows.length > 0;
+        };
+
+        if (!(await columnExists('admins', 'portal_theme'))) {
+            console.log("Migration: Adding portal_theme to admins...");
+            await db.query("ALTER TABLE admins ADD COLUMN portal_theme VARCHAR(50) DEFAULT 'default'");
+        }
+        if (!(await columnExists('admins', 'primary_color'))) {
+            console.log("Migration: Adding primary_color to admins...");
+            await db.query("ALTER TABLE admins ADD COLUMN primary_color VARCHAR(50) DEFAULT '#6366f1'");
+        }
+        console.log('Migration Success: portal_theme and primary_color columns checked/created in admins.');
+    } catch (err) {
+        console.error('Migration Error (portal_theme in admins):', err);
+    }
+
+    try {
+        // Migration 30: Add trial reminder tracking columns to admins table
+        const columnExists = async (table, column) => {
+            const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
+            return rows.length > 0;
+        };
+
+        if (!(await columnExists('admins', 'trial_reminder_5d_sent_at'))) {
+            console.log("Migration: Adding trial_reminder_5d_sent_at to admins...");
+            await db.query("ALTER TABLE admins ADD COLUMN trial_reminder_5d_sent_at DATETIME DEFAULT NULL");
+        }
+        if (!(await columnExists('admins', 'trial_reminder_1d_sent_at'))) {
+            console.log("Migration: Adding trial_reminder_1d_sent_at to admins...");
+            await db.query("ALTER TABLE admins ADD COLUMN trial_reminder_1d_sent_at DATETIME DEFAULT NULL");
+        }
+        if (!(await columnExists('admins', 'trial_reminder_0d_sent_at'))) {
+            console.log("Migration: Adding trial_reminder_0d_sent_at to admins...");
+            await db.query("ALTER TABLE admins ADD COLUMN trial_reminder_0d_sent_at DATETIME DEFAULT NULL");
+        }
+        console.log('Migration Success: Trial reminder tracking columns checked/created in admins.');
+    } catch (err) {
+        console.error('Migration Error (Trial reminder columns in admins):', err);
+    }
+
+    try {
+        // Migration 31: Add offline_alert_sent and last_offline_alert_at to routers table for offline email alerts
+        const columnExists = async (table, column) => {
+            const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
+            return rows.length > 0;
+        };
+
+        if (!(await columnExists('routers', 'offline_alert_sent'))) {
+            console.log("Migration: Adding offline_alert_sent to routers...");
+            await db.query("ALTER TABLE routers ADD COLUMN offline_alert_sent TINYINT(1) DEFAULT 0");
+        }
+        if (!(await columnExists('routers', 'last_offline_alert_at'))) {
+            console.log("Migration: Adding last_offline_alert_at to routers...");
+            await db.query("ALTER TABLE routers ADD COLUMN last_offline_alert_at DATETIME DEFAULT NULL");
+        }
+        console.log('Migration Success: Router offline alert tracking columns checked/created.');
+    } catch (err) {
+        console.error('Migration Error (offline alert columns in routers):', err);
+    }
+
+    try {
+        // Migration 32: Add device_type column to packages table for TV vs Mobile package categorization
+        const columnExists = async (table, column) => {
+            const [rows] = await db.query(`SHOW COLUMNS FROM ${table} LIKE '${column}'`);
+            return rows.length > 0;
+        };
+
+        if (!(await columnExists('packages', 'device_type'))) {
+            console.log("Migration: Adding device_type to packages...");
+            await db.query("ALTER TABLE packages ADD COLUMN device_type ENUM('mobile', 'tv', 'both') DEFAULT 'mobile'");
+        }
+        console.log('Migration Success: device_type column checked/created in packages.');
+    } catch (err) {
+        console.error('Migration Error (device_type in packages):', err);
     }
 }
 

@@ -1,24 +1,28 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 import DashboardLayout from './layouts/DashboardLayout'
 import AuthLayout      from './layouts/AuthLayout'
 import DashboardSkeleton from './components/DashboardSkeleton'
+import { safeSessionStorage } from './utils/safeStorage'
 
 function lazyWithRetry(componentImport) {
   return lazy(async () => {
-    const pageHasBeenRefreshed = JSON.parse(
-      window.sessionStorage.getItem('page-has-been-refreshed') || 'false'
-    )
+    let pageHasBeenRefreshed = false
+    try {
+      pageHasBeenRefreshed = JSON.parse(
+        safeSessionStorage.getItem('page-has-been-refreshed') || 'false'
+      )
+    } catch (_) {}
 
     try {
       const component = await componentImport()
-      window.sessionStorage.setItem('page-has-been-refreshed', 'false')
+      safeSessionStorage.setItem('page-has-been-refreshed', 'false')
       return component
     } catch (error) {
       if (!pageHasBeenRefreshed) {
-        window.sessionStorage.setItem('page-has-been-refreshed', 'true')
+        safeSessionStorage.setItem('page-has-been-refreshed', 'true')
         window.location.reload()
       }
       throw error
@@ -47,12 +51,17 @@ const WebConfigs    = lazyWithRetry(() => import('./pages/WebConfigs'))
 const Withdraw      = lazyWithRetry(() => import('./pages/Withdraw'))
 const AgentPortal   = lazyWithRetry(() => import('./pages/AgentPortal'))
 
+import PWAInstallPrompt from './components/PWAInstallPrompt'
+
 function PrivateRoute({ children, superAdminOnly = false }) {
   const { admin, booting } = useAuth()
+  const location = useLocation()
+
   if (booting) return <DashboardSkeleton />
   if (!admin) return <Navigate to="/login" replace />
-  if (admin.role === 'agent' && window.location.pathname !== '/agent-portal') return <Navigate to="/agent-portal" replace />
+  if (admin.role === 'agent' && location.pathname !== '/agent-portal') return <Navigate to="/agent-portal" replace />
   if (superAdminOnly && admin.role !== 'super_admin') return <Navigate to="/dashboard" replace />
+
   return children
 }
 
@@ -97,6 +106,7 @@ export default function App() {
                 <Route path="/web-configs"  element={<WebConfigs />} />
                 <Route path="/downloads"    element={<Navigate to="/dashboard" replace />} />
                 <Route path="/withdrawals"  element={<Withdraw />} />
+                <Route path="/withdraw"     element={<Withdraw />} />
                 <Route path="/agent-portal" element={
                   <PrivateRoute>
                     <AgentPortal />
@@ -122,6 +132,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>
+          <PWAInstallPrompt />
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

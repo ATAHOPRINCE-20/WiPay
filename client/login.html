@@ -15,8 +15,8 @@
 
 <body>
     <div class="container">
-        <header>
-            <img src="img/Wifi-Icon.png" alt="Wi-Fi" class="wifi-icon-img">
+        <header class="header">
+            <img src="img/favicon.png" alt="UGPAY" style="width: 64px; height: 64px; object-fit: contain; margin: 0 auto 10px; display: block; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.4));">
             <h1>UGPAY</h1>
             <p>Stay online, Stay informed</p>
         </header>
@@ -45,12 +45,13 @@
                 my voucher</a>
         </div>
 
-        <!-- Payment Methods -->
-        <div class="payment-methods">
-            <p>We Accept</p>
-            <div class="method-logos">
-                <span class="method-badge airtel">Airtel Money</span>
-                <span class="method-badge mtn">MTN MoMo</span>
+        <!-- We Accept Container Card (Using User's New Uploaded Transparent PNG Logos) -->
+        <div class="payment-accept-card">
+            <p class="accept-label">We accept:</p>
+            <div class="accept-logos">
+                <img src="img/airtel_money.png" alt="Airtel Money" class="logo-img" />
+                <div class="accept-divider"></div>
+                <img src="img/mtn_momo.png" alt="MTN MoMo" class="logo-img" />
             </div>
         </div>
 
@@ -64,11 +65,16 @@
 
         <!-- Info Footer -->
         <div class="info-footer">
-            
             <strong>FOR INQUIRIES</strong>
             <span id="inquiries-contact">Loading...</span><br>
-
         </div>
+
+        <!-- Powered by UgPay Footer Link -->
+        <footer style="margin-top: 25px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.15); text-align: center; position: relative; z-index: 50;">
+            <p style="color: rgba(255, 255, 255, 0.85); font-size: 0.85rem; font-weight: 500; margin: 0; text-transform: none;">
+                Powered by <a href="https://ugpay.tech/" target="_blank" rel="noopener noreferrer" onclick="window.open('https://ugpay.tech/', '_blank'); return true;" style="color: #6366f1; font-weight: 700; text-decoration: underline; cursor: pointer; display: inline-block; position: relative; z-index: 50; text-transform: none;">UgPay</a>
+            </p>
+        </footer>
 
         <!-- Messages -->
         <div id="statusMessage" class="status-message hidden"></div>
@@ -118,6 +124,43 @@
         document.addEventListener('DOMContentLoaded', () => {
             const packagesContainer = document.getElementById('packages-container');
             const statusMessage = document.getElementById('statusMessage');
+
+            // Fetch and Auto-Scroll Portal Ads Carousel
+            fetch(`${CONFIG.API_BASE_URL}/public/portal-ads`)
+                .then(r => r.json())
+                .then(ads => {
+                    if (Array.isArray(ads) && ads.length > 0) {
+                        const adContainer = document.getElementById('ad-container');
+                        const adLink = document.getElementById('ad-link');
+                        const adImage = document.getElementById('ad-image');
+                        
+                        let currentAdIdx = 0;
+                        const updateAdDisplay = (idx) => {
+                            const ad = ads[idx];
+                            if (adImage) adImage.src = ad.image_url;
+                            if (adLink) {
+                                if (ad.link_url) {
+                                    adLink.href = ad.link_url;
+                                    adLink.style.pointerEvents = 'auto';
+                                } else {
+                                    adLink.removeAttribute('href');
+                                    adLink.style.pointerEvents = 'none';
+                                }
+                            }
+                        };
+
+                        updateAdDisplay(0);
+                        if (adContainer) adContainer.classList.remove('hidden');
+
+                        if (ads.length > 1) {
+                            setInterval(() => {
+                                currentAdIdx = (currentAdIdx + 1) % ads.length;
+                                updateAdDisplay(currentAdIdx);
+                            }, 4000);
+                        }
+                    }
+                })
+                .catch(() => {});
 
             // Check for MikroTik Error (e.g. "invalid password", "simultaneous session limit")
             const urlParams = new URLSearchParams(window.location.search);
